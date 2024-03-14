@@ -1,0 +1,6 @@
+kaggle==1.6.6
+scikit-image==0.22.0
+tensorflow==3.2.0
+dlib==19.24.2
+numpy==1.26.4
+matplotlib==3.8.

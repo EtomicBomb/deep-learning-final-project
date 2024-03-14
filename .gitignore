@@ -1,0 +1,16 @@
+# project specific
+
+/data/**/*.mp4
+/data/**/*.mov
+/data/**/*.png
+/data/**/*.jpg
+!/data/final/**
+
+# general
+__pycache__/
+.idea/
+.env
+.venv
+.vscode/
+.history/
+*.vsix
