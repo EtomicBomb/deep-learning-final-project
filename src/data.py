@@ -3,7 +3,8 @@
 import sys
 from pathlib import Path
 
-path = Path(sys.argv[1]).resolve().parent
+destination = Path(sys.argv[1]).parent
 
+sources = [Path(source).parent for source in sys.argv[2:]]
 
-print(path)
+print(destination, sources)
