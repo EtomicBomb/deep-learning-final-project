@@ -20,14 +20,24 @@ Take the raw participant video and turn it into x, y training examples.
 resource | source | description
 ---|---|---
 `data/init/*/*/*/{0,5,10}.{mp4,mov}` | kaggle | the raw participant's videos downloaded directly from kaggle
-`data/flat/[participant id]/{0,5,10}.{mp4,mov}` | `data/init/` | get a participant id for each person, symlinks to `data/init/`
+`data/flat/[participant id]/{0,5,10}.{mp4,mov}` | `data/init/` | get a participant id for each person
 `data/positions/[participant id]/{0,5,10}.csv` | `data/flat/` | the position of keypoints on the particpant's eyes for each frame
 `data/extract/[participant id]/{0,5,10}.mp4` | `data/positions/`, `data/flat/` | applying a projection to every frame to extract videos of just the participant's eyes
 `data/split/{train,test,validation}/[partipant id]/{0,5,10}.mp4` | `data/extract/` | split the data into train, test, validation based on the partipant id
 
-The repository should have `data/extract` and `data/split`. `data/split` and `data/flat` should be symlinks to their respective sources.
+We can keep `data/extract` and `data/split` in version control. `data/split` and `data/flat` should be symlinks to their respective sources.
 
 It would be nice to use `make` for this entire pipeline so that we could take advantage of conditional re-building, and `-j8` parallelism.
+
+http://dlib.net/face_landmark_detection.py.html
+
+https://docs.opencv.org/4.x/d2/d42/tutorial_face_landmark_detection_in_an_image.html
+
+https://learnopencv.com/facemark-facial-landmark-detection-using-opencv/
+
+https://pyimagesearch.com/2018/04/02/faster-facial-landmark-detector-with-dlib/
+
+http://dlib.net/files/shape_predictor_5_face_landmarks.dat.bz2
 
 ### Building the ahead-of-time data
 
