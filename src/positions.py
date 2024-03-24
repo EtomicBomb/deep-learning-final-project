@@ -38,7 +38,7 @@ for frame in container.decode(stream):
     frame_index = frame.index
     if frame_index % 1000 == 0 and frame_index > 0:
         print(f'source {frame_index=} okay_count={len(frames)} {drop_count=}', file=sys.stderr)
-    if frame_index - last_decoded < 3: # skip
+    if frame_index - last_decoded < 2: # skip
         continue
     frame = frame.to_ndarray(format='gray', height=target_rows, width=target_cols, interpolation='FAST_BILINEAR')
     frame = rotate(frame)
