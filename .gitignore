@@ -1,10 +1,8 @@
 # project specific
 
-/data/**/*.mp4
-/data/**/*.mov
-/data/**/*.png
-/data/**/*.jpg
-!/data/final/**
+/data/init
+/data/positions
+/data/extract
 
 # general
 __pycache__/
@@ -13,4 +11,3 @@ __pycache__/
 .venv
 .vscode/
 .history/
-*.vsix

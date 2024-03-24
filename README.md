@@ -2,6 +2,8 @@
 
 There is a requirements.txt file that lists all of the python requirements.
 
+There will also probably be an ffmpeg dependency for the ahead-of-time pipeline.
+
 * https://sites.google.com/view/utarldd/home
 * https://www.kaggle.com/datasets/rishab260/uta-reallife-drowsiness-dataset
 
@@ -15,19 +17,9 @@ There is a requirements.txt file that lists all of the python requirements.
 
 Take the raw participant video and turn it into x, y training examples.
 
-## The ahead-of-time data pipeline
+We will run the ahead-of-time pipeline before training. When it generates all of the data we need, we can use the just-in-time pipeline (`tf.Dataset`) during training.
 
-resource | source | description
----|---|---
-`data/init/*/*/*/{0,5,10}.{mp4,mov}` | kaggle | the raw participant's videos downloaded directly from kaggle
-`data/flat/[participant id]/{0,5,10}.{mp4,mov}` | `data/init/` | get a participant id for each person
-`data/positions/[participant id]/{0,5,10}.csv` | `data/flat/` | the position of keypoints on the particpant's eyes for each frame
-`data/extract/[participant id]/{0,5,10}.mp4` | `data/positions/`, `data/flat/` | applying a projection to every frame to extract videos of just the participant's eyes
-`data/split/{train,test,validation}/[partipant id]/{0,5,10}.mp4` | `data/extract/` | split the data into train, test, validation based on the partipant id
-
-We can keep `data/extract` and `data/split` in version control. `data/split` and `data/flat` should be symlinks to their respective sources.
-
-It would be nice to use `make` for this entire pipeline so that we could take advantage of conditional re-building, and `-j8` parallelism.
+## Ahead-of-time pipeline
 
 http://dlib.net/face_landmark_detection.py.html
 
@@ -39,21 +31,29 @@ https://pyimagesearch.com/2018/04/02/faster-facial-landmark-detector-with-dlib/
 
 http://dlib.net/files/shape_predictor_5_face_landmarks.dat.bz2
 
-### Building the ahead-of-time data
+https://ffmpeg.org/ffmpeg-filters.html#perspective
 
-The repository will include the final processed video, so you probably don't need to do this.
+Here is how to build the data from the raw participant videos. The repository will include the final processed video, so you probably don't need to do this.
 
-If you would like to download and rebuild everything from the raw dataset, run
+* Make sure `data/init/` contains the raw participant videos from kaggle. You can make `data/init/` a symlink to an external or network drive if you need to. Because of its large size, procuring `data/init/` is your responsibility, and no recipe is provided for these files.
 
-```sh
-make -B data
-```
+* Run `src/partipants.py`. This will generate `data/listing.txt` from `data/init/`. It is a list of the partipant ids. This file is in verison control because it can be useful to know the partipant ids withot the raw participant videos.
 
-This will use several hundred gigabytes of disk space, and take many hours.
+* Run `src/split.py`. This generates `data/{train,test,validation}.txt` from `data/partipants.txt`, which each contain the participant ids in their respective split. The files generated belong in version control, since the train/test split should be stable. This can be run anytime, even after building the data pipeline.
+
+* Run `src/makefile.py` to generate the `Makefile`. This script will inspect `data/listing.txt`, and create a `Makefile` with the recipes to build the ahead-of-time data files. Each data file is its own target. The generated `Makefile` will be in version control because it contains the mapping from source video files to participant ids.
+
+* Run `make -j8`. This will build out the data from `data/init/`. This command can be interrupted arbitrarily and is expected to take very long. The table has info about the resources generated.
+
+resource | source | description
+---|---|---
+`data/init/[participant id]/{0,5,10}.{mp4,mov}` | kaggle | the raw participant's videos downloaded directly from kaggle
+`data/positions/[participant id]/{0,5,10}.csv` | `data/init/` | the position of keypoints on the particpant's eyes for each frame
+`data/extract/[participant id]/{0,5,10}.mp4` | `data/positions/`, `data/init/` | applying a projection to every frame to extract videos of just the participant's eyes
 
 ## Just-in-time pipeline
 
-These things can all happen in tensorflow just-in-time.
+These things can all happen in tensorflow during training.
 
 https://www.tensorflow.org/api_docs/python/tf/data/Dataset
 
