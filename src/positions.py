@@ -15,7 +15,7 @@ import json
 
 _, source, target = sys.argv
 
-rotation = Path('data', 'rotation.json')
+rotation = Path('data/rotation.json')
 rotation = json.loads(rotation.read_text())
 rotation = rotation[str(Path(source).relative_to('data/init'))]
 rotate = lambda x: np.rot90(x, -rotation // 90)
