@@ -4,7 +4,8 @@
 #SBATCH -n 1
 #SBATCH -N 1
 #SBATCH --mem=4G
+#SBATCH --partition=batch
 
-module load python/3.11.0s-ixrhc3q
+module load python
 
 make "$1"

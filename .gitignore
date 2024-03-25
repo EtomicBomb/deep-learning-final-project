@@ -1,8 +1,11 @@
 # project specific
 
+# these belong in the google drive
 /data/init
 /data/positions
 /data/extract
+*.h5
+*.keras
 
 # general
 __pycache__/
