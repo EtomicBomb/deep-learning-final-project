@@ -1,69 +1,96 @@
 #!/usr/bin/env python
 
+from matplotlib import animation, widgets
 import tensorflow as tf
 from tensorflow.data import Dataset
 import av
+from typing import Iterable
 from numpy.lib.stride_tricks import sliding_window_view
-from itertools import takewhile
+from itertools import islice
 from pathlib import Path
 import json
+from functools import reduce
+import numpy as np
+import matplotlib.pyplot as plt
 
-@tf.py_function(Tout=(tf.TensorSpec(shape=(None, 224, 224), dtype=tf.uint8), tf.int32))
-def fetch_segment(path, lo, hi, label): 
-    path, lo, hi, label = path.numpy().decode('utf-8'), int(lo.numpy()), int(hi.numpy()), label
-    with av.open(path) as container:
+video_height = 112
+video_width = 224
+
+def file_ptss(path: Path, frames_per_example: int) -> Dataset:
+    with av.open(str(path)) as container:
         stream, = container.streams
-        container.seek(lo, backward=True, any_frame=False, stream=stream)
-        undecoded = takewhile(lambda frame: frame.pts < hi, container.decode(stream)) 
-        return tf.stack([tf.constant(frame.to_ndarray()) for frame in undecoded]), label
+        stream = (frame.pts for frame in container.demux(stream) if frame.pts is not None)
+        stream = islice(stream, 0, None, frames_per_example)
+        stream = np.fromiter(stream, np.int64)
+        stream = stream[:-1]
+        return Dataset.from_tensor_slices(stream)
 
-def process_file(path):
-    for path in Path('data/extract', path).glob('*'):
-        path = path.with_suffix('.mp4')
-        label, *_ = path.with_suffix('').name.split('_')
-        label = int(label)
-        with av.open(str(path)) as container:
-            stream, = container.streams
-            keyframes = [frame.pts for frame in container.demux(stream) if frame.is_keyframe]
-            keyframes_per_example = 3 
-            lo = keyframes[::keyframes_per_example][:-1]
-            hi = keyframes[::keyframes_per_example][1:]
-            for lo, hi in zip(lo, hi):
-                yield str(path), lo, hi, label
-
-def get_dataset(paths):
-    datasets = {0: [], 5: [], 10: []}
-
+def more_data(
+    paths: Iterable[Path], 
+    label: int, 
+    frames_per_example: int,
+) -> Dataset:
+    """
+    returns: Dataset[pts: int32, path: str, label: int]
+    """
+    ret = []
     for path in paths:
-        for path, lo, hi, label in process_file(path):
-            datasets[label].append((path, lo, hi, label))
+        path, = Path('data/extract', path).glob(f'{label}*.mp4')
+        ptss = file_ptss(path, frames_per_example)
+        ptss = ptss.map(lambda pts: (pts, str(path)))
+        ret += [ptss]
+    ret = reduce(Dataset.concatenate, ret)
+    ret = ret.map(lambda pts, path: (pts, path, label))
+    return ret
 
-    sample_from = []
-    for label, d in datasets.items():
-        e = Dataset.from_generator(
-            lambda: d,
-            output_signature=(
-                tf.TensorSpec((), tf.string),
-                tf.TensorSpec((), tf.int32),
-                tf.TensorSpec((), tf.int32),
-                tf.TensorSpec((), tf.int32),
-            ),
-        )
+def get_dataset(
+    paths: Iterable[Path], 
+    frames_per_example: int,
+    shuffle_batch: int,
+):
+    data = [
+        more_data(paths, 0, frames_per_example),
+        more_data(paths, 5, frames_per_example),
+        more_data(paths, 10, frames_per_example),
+    ]
+    data = Dataset.sample_from_datasets(data, rerandomize_each_iteration=True) 
+    data = data.shuffle(data.cardinality(), reshuffle_each_iteration=True)
+    data = data.repeat()
+    data = data.shuffle(shuffle_batch, reshuffle_each_iteration=True)
 
-        e = e.shuffle(e.cardinality(), reshuffle_each_iteration=True)
-        e = e.map(fetch_segment)
-        sample_from.append(e)
-
-    return Dataset.sample_from_datasets(
-        sample_from,
-        rerandomize_each_iteration=True,
-    )
+    @tf.py_function(Tout=tf.TensorSpec(shape=(frames_per_example, video_height, video_width), dtype=tf.uint8))
+    def fetch_segment(pts: tf.int64, path: tf.string, frames_per_example: tf.int64): 
+        path = path.numpy().decode('utf-8')
+        pts = int(pts.numpy())
+        with av.open(path) as container:
+            stream, = container.streams
+            container.seek(pts, backward=True, any_frame=False, stream=stream)
+            stream = iter(container.decode(stream))
+            frames = []
+            while len(frames) < frames_per_example:
+                frame = next(stream)
+                if frame.pts >= pts:
+                    frames.append(tf.convert_to_tensor(frame.to_ndarray()))
+            return tf.stack(frames)
+    data = data.map(lambda pts, path, label: (fetch_segment(pts, path, frames_per_example), label))
+    return data
 
 splits = json.loads(Path('data/split.json').read_text())
+data = splits['train'][:2]
+data = list(map(Path, data))
+data = get_dataset(data, 30 * 3, 1000).prefetch(4)
+
+fig, ax = plt.subplots()
+data = iter((np.float32(x.numpy()) / 255.0, y.numpy()) for xs, y in data for x in xs)
+image = ax.imshow(next(data)[0], cmap='gray')
+def animate(data):
+    data, y = data
+    image.set_data(data)
+    print(y)
+    return [image]
+ani = animation.FuncAnimation(fig, animate, data, cache_frame_data=False, blit=True, interval=1)
+plt.show()
 
 # train = get_dataset(splits['train']).batch(8).prefetch(2)
 # test = get_dataset(splits['test']).batch(8).prefetch(2)
 # validation = get_dataset(splits['validation']).batch(8).prefetch(2)
-
-for x, y in get_dataset(splits['train'][:4]).as_numpy_iterator():
-    print(x, y)
