@@ -173,7 +173,6 @@ def train():
     )
 
     splits = json.loads(Path('data/split.json').read_text())
-    splits = json.loads(Path('data/split.json').read_text())
     dataset = splits['train'][:1]
     dataset = get_dataset(
         dataset, 
@@ -182,7 +181,6 @@ def train():
         video_height=video_height, 
         video_width=video_width,
     ).prefetch(4).batch(batch_size)
-    print(*((e.shape, e.dtype) for e in next(iter(dataset))))
     model.fit(dataset, steps_per_epoch=10, epochs=10)
 
 def evaluate():

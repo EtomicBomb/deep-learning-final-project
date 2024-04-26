@@ -64,7 +64,14 @@ if __name__ == '__main__':
     model.summary()
 
     splits = json.loads(Path('data/split.json').read_text())
-    dataset = get_dataset(splits['train'][:4])
-    model.fit(dataset, epochs=10)
+    dataset = splits['train'][:1]
+    dataset = get_dataset(
+        dataset, 
+        frames_per_example, 
+        shuffle_batch=1000, 
+        video_height=video_height, 
+        video_width=video_width,
+    ).prefetch(4).batch(batch_size)
+    model.fit(dataset, steps_per_epoch=10, epochs=10)
 
     test_loss, test_acc = model.evaluate(dataset)
