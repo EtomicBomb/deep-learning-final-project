@@ -2,23 +2,28 @@ import tensorflow as tf
 from tensorflow import keras
 from tensorflow.keras import Sequential
 from tensorflow.keras.layers import Dense, Conv2D, MaxPooling2D, Flatten, Softmax
-# dataset related imports
-from main import get_dataset
-import json
-from pathlib import Path
 
-
+# need to change the values for optimizer, loss & metrics -- copied from documentation
 
 class Model(tf.keras.Model):
-    def __init__(self, num_classes):
+    def __init__(
+        self, 
+        batch_size: int, 
+        frames_per_example: int,
+        video_height: int, 
+        video_width: int, 
+        channels: int, 
+        num_classes: int,
+    ):
         super().__init__()
-        self.hidden_size1 = None
-        self.hidden_size2 = None
-        self.hidden_size3 = None
+        self.hidden_size1 = 1
+        self.hidden_size2 = 1
+        self.hidden_size3 = 1
         self.num_classes = num_classes
     # layers here
 
         self.cnn = Sequential([
+            keras.Input(shape=(frames_per_example, video_height, video_width, channels), batch_size=batch_size),
         # model here
             Conv2D(self.hidden_size1, kernel_size=(3,3), activation='relu'),
             MaxPooling2D(pool_size=(2, 2)),
@@ -32,22 +37,34 @@ class Model(tf.keras.Model):
         out = self.cnn(inputs)
         return out
 
+if __name__ == '__main__':
+    # dataset related imports
+    from main import get_dataset
+    import json
+    from pathlib import Path
 
-model = Model(num_classes=3) # classifying 3 levels of drowsiness: low, med, high
+    batch_size = 4
+    frames_per_example = 30 * 3
+    video_height = 112
+    video_width = 224
+    model = Model(
+        batch_size=batch_size,
+        frames_per_example=frames_per_example,
+        video_height=video_height,
+        video_width=video_width,
+        channels=1,
+        num_classes=3,
+    ) # classifying 3 levels of drowsiness: low, med, high
+    model.compile(
+    optimizer=keras.optimizers.Adam(learning_rate=1e-3),
+    loss='binary_cross_entropy',
+    metrics=['accuracy'],
+    )
 
-# need to change the values for optimizer, loss & metrics -- copied from documentation
-model.compile(
-optimizer=keras.optimizers.Adam(learning_rate=1e-3),
-loss='binary_cross_entropy',
-metrics=['accuracy'],
-)
+    model.summary()
 
-model.summary()
+    splits = json.loads(Path('data/split.json').read_text())
+    dataset = get_dataset(splits['train'][:4])
+    model.fit(dataset, epochs=10)
 
-splits = json.loads(Path('data/split.json').read_text())
-dataset = get_dataset(splits['train'][:4])
-model.fit(dataset, epochs=10)
-
-test_loss, test_acc = model.evaluate(dataset)
-
-
+    test_loss, test_acc = model.evaluate(dataset)

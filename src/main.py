@@ -13,6 +13,7 @@ import json
 from functools import reduce
 import numpy as np
 import matplotlib.pyplot as plt
+from argparse import ArgumentParser
 
 def file_ptss(path: Path, frames_per_example: int) -> Dataset:
     with av.open(str(path)) as container:
@@ -106,7 +107,7 @@ def smooth_exponential(x, w, base, mean, stddev, rng):
     w = tf.concat((w[:-1], tf.reverse(w, axis=(0,))), axis=0)
     w = w / tf.reduce_sum(w)
     w = tf.reshape(w, (-1, 1, 1))
-    x = x + len(w) - 1
+    x = x + w.shape[0] - 1
     x = rng.truncated_normal(shape=(1, x, 1), mean=mean, stddev=stddev)
     x = tf.nn.convolution(x, w)
     x = tf.reshape(x, (-1,))
@@ -151,6 +152,43 @@ def augmentation_model(batch_size, frames_per_example, video_height, video_width
     x = VideoRandomOperation(video_crop_and_resize)(x)
     return keras.Model(inputs=inputs, outputs=x)
 
+def train():
+    from model import Model 
+    batch_size = 4
+    frames_per_example = 30 * 3
+    video_height = 112
+    video_width = 224
+    model = Model(
+        batch_size=batch_size,
+        frames_per_example=frames_per_example,
+        video_height=video_height,
+        video_width=video_width,
+        channels=1,
+        num_classes=3,
+    ) # classifying 3 levels of drowsiness: low, med, high
+    model.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=1e-3),
+        loss='binary_cross_entropy',
+        metrics=['accuracy'],
+    )
+
+    splits = json.loads(Path('data/split.json').read_text())
+    splits = json.loads(Path('data/split.json').read_text())
+    dataset = splits['train'][:1]
+    dataset = get_dataset(
+        dataset, 
+        frames_per_example, 
+        shuffle_batch=1000, 
+        video_height=video_height, 
+        video_width=video_width,
+    ).prefetch(4).batch(batch_size)
+    print(*((e.shape, e.dtype) for e in next(iter(dataset))))
+    model.fit(dataset, steps_per_epoch=10, epochs=10)
+
+def evaluate():
+    assert False, 'TODO'
+    test_loss, test_acc = model.evaluate(dataset)
+
 def demo():
     frames_per_example = 30 * 3
     video_height = 112
@@ -178,7 +216,17 @@ def demo():
     ani = animation.FuncAnimation(fig, animate, data, cache_frame_data=False, blit=True, interval=1)
     plt.show()
 
-demo()
+if __name__ == '__main__':
+    modes = dict(demo=demo, train=train, evaluate=evaluate)
+    parser = ArgumentParser(
+        prog='drowsiness classifier',
+        description='sees if someone is drowsy',
+        epilog='text at the bottom of help')
+    parser.add_argument('-m', '--mode', choices=list(modes), default=next(iter(modes)))
+    args = parser.parse_args()
+
+    modes[args.mode]()
+
 # train = get_dataset(splits['train']).batch(8).prefetch(2)
 # test = get_dataset(splits['test']).batch(8).prefetch(2)
 # validation = get_dataset(splits['validation']).batch(8).prefetch(2)
