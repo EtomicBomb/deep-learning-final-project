@@ -194,7 +194,7 @@ def demo():
     splits = json.loads(Path('data/split.json').read_text())
     data = splits['train'][:1] # select only one participant so we can see changes easily
     data = get_dataset(
-        data, 
+        data,
         frames_per_example, 
         shuffle_batch=1000, 
         video_height=video_height, 
@@ -224,7 +224,3 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     modes[args.mode]()
-
-# train = get_dataset(splits['train']).batch(8).prefetch(2)
-# test = get_dataset(splits['test']).batch(8).prefetch(2)
-# validation = get_dataset(splits['validation']).batch(8).prefetch(2)
