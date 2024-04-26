@@ -6,13 +6,13 @@ from tensorflow import keras
 from tensorflow.data import Dataset
 import av
 from typing import Iterable
-from numpy.lib.stride_tricks import sliding_window_view
 from itertools import islice
 from pathlib import Path
 import json
 from functools import reduce
 import numpy as np
 import matplotlib.pyplot as plt
+import tensorflow_graphics.image.transformer as tfg
 
 def file_ptss(path: Path, frames_per_example: int) -> Dataset:
     with av.open(str(path)) as container:
@@ -89,12 +89,11 @@ class VideoRandomOperation(keras.layers.Layer):
     def call(self, x, training=True):
         return self.operation(x, self.rng) if training else x
 
-def random_flip(x, rng):
+def video_random_flip(x, rng):
     batch_size, frame_count, height, width, channels = x.shape
     mask = rng.binomial(shape=(batch_size,), counts=1., probs=0.5)
-    mask = mask == 1
     mask = tf.reshape(mask, (batch_size, 1, 1, 1, 1))
-    return tf.where(mask, x, tf.reverse(x, axis=(3,)))
+    return tf.where(mask == 1, x, tf.reverse(x, axis=(3,)))
 
 def smooth_exponential(x, w, base, mean, stddev, rng):
     """
@@ -112,14 +111,14 @@ def smooth_exponential(x, w, base, mean, stddev, rng):
     x = tf.reshape(x, (-1,))
     return x
 
-def random_contrast(x, rng):
+def video_random_contrast(x, rng):
     batch_size, frame_count, height, width, channels = x.shape
     mask = smooth_exponential(x=batch_size * frame_count, w=30, base=1.1, mean=1., stddev=1.5, rng=rng)
     mask = tf.reshape(mask, (batch_size, frame_count, 1, 1, 1))
     x = (x - 0.5) * mask + 0.5
     return tf.clip_by_value(x, 0.0, 1.0)
 
-def random_brightness(x, rng):
+def video_random_brightness(x, rng):
     batch_size, frame_count, height, width, channels = x.shape
     mask = smooth_exponential(x=batch_size * frame_count, w=30, base=1.1, mean=1., stddev=1.5, rng=rng)
     mask = tf.reshape(mask, (batch_size, frame_count, 1, 1, 1))
@@ -143,20 +142,74 @@ def video_crop_and_resize(x, rng):
         crop_size=(height, width))
     return tf.reshape(x, (batch_size, frame_count, height, width, channels))
 
-def augmentation_model(batch_size, frames_per_example, video_height, video_width, channels):
-    x = inputs = keras.Input(shape=(frames_per_example, video_height, video_width, channels), batch_size=batch_size)
-    x = VideoRandomOperation(random_flip)(x)
-    x = VideoRandomOperation(random_contrast)(x)
-    x = VideoRandomOperation(random_brightness)(x)
-    x = VideoRandomOperation(video_crop_and_resize)(x)
-    return keras.Model(inputs=inputs, outputs=x)
+def translation(v: tf.float32, h: tf.float32):
+    return tf.convert_to_tensor([[[1, 0, h], [0, 1, v], [0, 0, 1],]], dtype=tf.float32)
+
+# 0.1 -> -0.1
+# 0.9 -> 1.1
+# 0.9 + 2 - 2 * 0.9)
+
+inputs = [
+    [0, 0],
+    [1, 0],
+    [0, 1],
+    [1, 1],
+]
+
+inputs = [
+    [0, 0],
+    [1, 0],
+    [0, 1],
+    [1, 1],
+]
+out1 = [
+
+# def warp_crop_boxes(warp, height, width):
+#     height = tf.cast(height, tf.float32)
+#     width = tf.cast(width, tf.float32)
+#     corners = [[0, 0, 1], [0, height-1, 1], [width-1, 0, 1], [width-1, height-1, 1]] # 4, 3 -> 
+#     corners = tf.reshape(corners, (4, 1, 3, 1))
+#     corners = tf.cast(corners, tf.float32)
+#     corners = warp @ corners # -> 4, 3, 1
+#     corners = corners[:, :, :2, 0] / corners[:, :, 2:, 0] # -> 4, N, 2
+#     corners = corners / tf.reshape([width - 1, height], (1, 1, 2))
+# #     corners = tf.clip_by_value(corners, 0.0, 1.0)
+#     cs, rs = tf.unstack(corners, axis=2) # -> 4, N
+#     print(cs.shape)
+#     y1 = tf.math.reduce_min(rs, axis=(0,))
+#     x1 = tf.math.reduce_min(cs, axis=(0,))
+#     y2 = tf.math.reduce_max(rs, axis=(0,))
+#     x2 = tf.math.reduce_max(cs, axis=(0,))
+#     boxes = tf.transpose([y1, x1, y2, x2])
+#     print(boxes)
+#     return boxes
+
+def video_perspective_transform(x, rng):
+    batch_size, frame_count, height, width, channels = x.shape
+    length = batch_size * frame_count
+    t = smooth_exponential(x=length, w=50, base=1.1, mean=10.0, stddev=0., rng=rng)
+    a = smooth_exponential(x=length, w=50, base=1.1, mean=0., stddev=0.0, rng=rng)
+    b = smooth_exponential(x=length, w=50, base=1.1, mean=0., stddev=0.0, rng=rng)
+    c = smooth_exponential(x=length, w=50, base=1.1, mean=1., stddev=0.0, rng=rng)
+    o = tf.ones_like(a)
+    z = tf.zeros_like(a)
+    warp = tf.transpose([[o, z, t], [z, o, z], [a, b, c]], perm=(2, 0, 1))
+    warp = translation(height/2, width/2) @ warp @ translation(-height/2, -width/2)
+    x = tf.reshape(x, (length, height, width, channels))
+    x = tfg.perspective_transform(x, warp)
+    x = tf.image.crop_and_resize(
+        x, 
+        boxes=warp_crop_boxes(warp, height, width),
+        box_indices=tf.range(length),
+        crop_size=(height, width))
+    return tf.reshape(x, (batch_size, frame_count, height, width, channels))
 
 def demo():
     frames_per_example = 30 * 3
     video_height = 112
     video_width = 224
-    splits = json.loads(Path('data/split.json').read_text())
-    data = splits['train'][:1] # select only one participant so we can see changes easily
+    data = json.loads(Path('data/split.json').read_text())
+    data = data['train'][:1] # select only one participant so we can see changes easily
     data = get_dataset(
         data, 
         frames_per_example, 
@@ -165,15 +218,21 @@ def demo():
         video_width=video_width,
     ).prefetch(4)
 
-    augment = augmentation_model(1, frames_per_example, video_height, video_width, channels=1)
+    augment_model = tf.keras.Sequential([
+        VideoRandomOperation(video_perspective_transform),
+#         VideoRandomOperation(video_random_flip),
+#         VideoRandomOperation(video_random_contrast),
+#         VideoRandomOperation(video_random_brightness),
+#         VideoRandomOperation(video_crop_and_resize),
+    ])
 
     fig, ax = plt.subplots()
-    data = iter((x, y) for xs, y in data for x in tf.squeeze(augment(tf.expand_dims(xs, 0)), 0))
+    data = iter((x, y) for xs, y in data for x in tf.squeeze(augment_model(tf.expand_dims(xs, 0)), 0))
     image = ax.imshow(next(data)[0], cmap='gray')
     def animate(data):
         x, y = data
         image.set_data(x.numpy())
-        print(y.numpy())
+#         print(y.numpy())
         return [image]
     ani = animation.FuncAnimation(fig, animate, data, cache_frame_data=False, blit=True, interval=1)
     plt.show()
