@@ -82,8 +82,8 @@ def get_dataset(
     return data
 
 class VideoRandomOperation(keras.layers.Layer):
-    def __init__(self, rng=None):
-        super().__init__(trainable=False)
+    def __init__(self, rng=None, *args, **kwargs):
+        super().__init__(trainable=False, *args, **kwargs)
         if rng is None:
             rng = tf.random.Generator.from_non_deterministic_state()
         self.rng = rng
@@ -110,8 +110,8 @@ class VideoRandomOperation(keras.layers.Layer):
         return self.operation(x, self.rng) if training else x
 
 class VideoRandomFlip(VideoRandomOperation):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
     def operation(self, x, rng):
         batch_size, frame_count, height, width, channels = x.shape
         mask = rng.binomial(shape=(batch_size,), counts=1., probs=0.5)
@@ -119,8 +119,8 @@ class VideoRandomFlip(VideoRandomOperation):
         return tf.where(mask == 1, x, tf.reverse(x, axis=(3,)))
 
 class VideoRandomContrast(VideoRandomOperation):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
     def operation(self, x, rng):
         batch_size, frame_count, height, width, channels = x.shape
         mask = self.smooth_exponential(x=batch_size * frame_count, base=1.1, mean=1., stddev=1.5)
@@ -129,8 +129,8 @@ class VideoRandomContrast(VideoRandomOperation):
         return tf.clip_by_value(x, 0.0, 1.0)
 
 class VideoRandomBrightness(VideoRandomOperation):
-    def __init__(self):
-        super().__init__()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
     def operation(self, x, rng):
         batch_size, frame_count, height, width, channels = x.shape
         mask = self.smooth_exponential(x=batch_size * frame_count, base=1.1, mean=1., stddev=1.5)
@@ -153,12 +153,15 @@ class VideoRandomPerspective(VideoRandomOperation):
         warp_basis = tf.convert_to_tensor(warp_basis, dtype=np.float32)
         warp_basis = tf.reshape(warp_basis, (4, 1, 3, 3))
         self.warp_basis = warp_basis
+
     @staticmethod
     def scale(sr: tf.float32, sc: tf.float32):
         return tf.convert_to_tensor([[[sc, 0, 0], [0, sr, 0], [0, 0, 1]]], dtype=tf.float32)
+
     @staticmethod
     def translation(tr: tf.float32, tc: tf.float32):
         return tf.convert_to_tensor([[[1, 0, tc], [0, 1, tr], [0, 0, 1]]], dtype=tf.float32)
+
     def operation(self, x, rng):
         batch_size, frame_count, height, width, channels = x.shape
         length = batch_size * frame_count
