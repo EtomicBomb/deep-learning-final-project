@@ -36,8 +36,8 @@ def more_data(
 
 def get_dataset(
     paths: Iterable[str], 
-    frames_per_example: int,
     shuffle_batch: int,
+    frames_per_example: int,
     video_height: int,
     video_width: int,
 ) -> Dataset:

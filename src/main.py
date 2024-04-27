@@ -1,78 +1,76 @@
 #!/usr/bin/env python
 
-from matplotlib import animation, widgets
+from matplotlib.animation import FuncAnimation
 import tensorflow as tf
 from tensorflow import keras
 from pathlib import Path
 import json
 import matplotlib.pyplot as plt
 from argparse import ArgumentParser
+from dataclasses import dataclass
 
 from dataset import get_dataset
 from augment import VideoRandomPerspective, VideoRandomFlip, VideoRandomContrast, VideoRandomBrightness
 
+batch_size = 2
+frames_per_example = 30 * 3
+video_height = 112
+video_width = 224
+channels = 1
+num_classes = 3
+rng = tf.random.Generator.from_non_deterministic_state()
+
+augment_model = keras.Sequential([
+    keras.Input(shape=(frames_per_example, video_height, video_width, channels), batch_size=batch_size),
+    VideoRandomPerspective(rng=rng),
+    VideoRandomFlip(rng=rng),
+    VideoRandomContrast(rng=rng),
+    VideoRandomBrightness(rng=rng),
+])
+
+data = json.loads(Path('data/split.json').read_text())
+data = data['train'][:1] # select only one participant so we can see changes easily
+data = get_dataset(
+    data,
+    shuffle_batch=1000, 
+    frames_per_example=frames_per_example, 
+    video_height=video_height, 
+    video_width=video_width,
+)
+data = data.batch(batch_size)
+data = data.map(lambda x, y: (augment_model(x), y))
+data = data.prefetch(4)
+
 def demo():
-    frames_per_example = 30 * 3
-    video_height = 112
-    video_width = 224
-    data = json.loads(Path('data/split.json').read_text())
-    data = data['train'][:1] # select only one participant so we can see changes easily
-    data = get_dataset(
-        data,
-        frames_per_example, 
-        shuffle_batch=1000, 
-        video_height=video_height, 
-        video_width=video_width,
-    ).batch(1).prefetch(4).as_numpy_iterator()
-
-    augment_model = tf.keras.Sequential([
-        VideoRandomPerspective(),
-        VideoRandomFlip(),
-        VideoRandomContrast(),
-        VideoRandomBrightness(),
-    ])
-
     fig, ax = plt.subplots()
-    data = iter((x, y) for xs, y in data for x in tf.squeeze(augment_model(xs), 0))
+    global data
+    data = data.as_numpy_iterator()
+    data = iter((frame, label) for batch, labels in data for video, label in zip(batch, labels) for frame in video)
     image = ax.imshow(next(data)[0], cmap='gray')
     def animate(data):
         x, y = data
         image.set_data(x)
         print(y)
         return [image]
-    ani = animation.FuncAnimation(fig, animate, data, cache_frame_data=False, blit=True, interval=1)
+    ani = FuncAnimation(fig, animate, data, cache_frame_data=False, blit=True, interval=1)
     plt.show()
 
 def train():
     from model import Model 
-    batch_size = 4
-    frames_per_example = 30 * 3
-    video_height = 112
-    video_width = 224
     model = Model(
         batch_size=batch_size,
         frames_per_example=frames_per_example,
         video_height=video_height,
         video_width=video_width,
-        channels=1,
-        num_classes=3,
+        channels=channels,
+        num_classes=num_classes,
     ) # classifying 3 levels of drowsiness: low, med, high
     model.compile(
         optimizer=keras.optimizers.Adam(learning_rate=1e-3),
         loss='binary_cross_entropy',
         metrics=['accuracy'],
     )
-
-    splits = json.loads(Path('data/split.json').read_text())
-    dataset = splits['train'][:1]
-    dataset = get_dataset(
-        dataset, 
-        frames_per_example, 
-        shuffle_batch=1000, 
-        video_height=video_height, 
-        video_width=video_width,
-    ).batch(batch_size).prefetch(4)
-    model.fit(dataset, steps_per_epoch=10, epochs=10)
+    model.fit(data, steps_per_epoch=10, epochs=10)
 
 def evaluate():
     assert False, 'TODO'
@@ -86,5 +84,4 @@ if __name__ == '__main__':
         epilog='text at the bottom of help')
     parser.add_argument('-m', '--mode', choices=list(modes), default=next(iter(modes)))
     args = parser.parse_args()
-
     modes[args.mode]()
