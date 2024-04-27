@@ -23,7 +23,7 @@ def demo():
         shuffle_batch=1000, 
         video_height=video_height, 
         video_width=video_width,
-    ).prefetch(4)
+    ).prefetch(4).batch(1).as_numpy_iterator()
 
     augment_model = tf.keras.Sequential([
         VideoRandomPerspective(),
@@ -33,12 +33,12 @@ def demo():
     ])
 
     fig, ax = plt.subplots()
-    data = iter((x, y) for xs, y in data for x in tf.squeeze(augment_model(tf.expand_dims(xs, 0)), 0))
+    data = iter((x, y) for xs, y in data for x in tf.squeeze(augment_model(xs), 0))
     image = ax.imshow(next(data)[0], cmap='gray')
     def animate(data):
         x, y = data
-        image.set_data(x.numpy())
-#         print(y.numpy())
+        image.set_data(x)
+        print(y)
         return [image]
     ani = animation.FuncAnimation(fig, animate, data, cache_frame_data=False, blit=True, interval=1)
     plt.show()
