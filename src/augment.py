@@ -1,8 +1,11 @@
-import tensorflow_graphics.image.transformer as tfg
 from skimage import transform
 import tensorflow as tf
 from tensorflow import keras
 import numpy as np
+import warnings
+with warnings.catch_warnings():
+    warnings.simplefilter('ignore')
+    import tensorflow_graphics.image.transformer as tfg
 
 class VideoRandomOperation(keras.layers.Layer):
     def __init__(self, *args, rng=None, smooth_base=None, smooth_mean=None, smooth_std=None, **kwargs):

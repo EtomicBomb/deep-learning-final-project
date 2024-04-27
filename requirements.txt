@@ -1,6 +1,7 @@
 scikit-image
 tensorflow
-# dlib
 numpy
 matplotlib
 av
+tensorflow_graphics
+# dlib
