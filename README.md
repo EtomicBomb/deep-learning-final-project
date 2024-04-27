@@ -71,3 +71,9 @@ the model to be comfortable with the inevitable small shifts.
 * shuffle video clips. This may be tricky because we want to randomize across all files, but can't read the entire dataset into memory. Maybe this should be the ahead-of-time pipeline's job?
 * batching 
 
+##  Getting the Vision Transformer submodule's code
+https://gist.github.com/gitaarik/8735255
+If a new submodule is created by one person, the other people in the team need to initiate this submodule. First you have to get the information about the submodule, this is retrieved by a normal git pull. If there are new submodules you'll see it in the output of git pull. Then you'll have to initiate them with:
+`git submodule init` 
+
+Note `input_shape=(X, 112, 224, 1)`
