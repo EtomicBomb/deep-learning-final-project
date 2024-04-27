@@ -128,23 +128,6 @@ def video_random_brightness(x, rng):
     x = x * mask
     return tf.clip_by_value(x, 0.0, 1.0)
 
-def video_crop_and_resize(x, rng):
-    batch_size, frame_count, height, width, channels = x.shape
-    length = batch_size * frame_count
-    x1 = smooth_exponential(x=length, base=1.1, mean=0., stddev=0.2, rng=rng)
-    x2 = smooth_exponential(x=length, base=1.1, mean=1., stddev=0.2, rng=rng)
-    y1 = smooth_exponential(x=length, base=1.1, mean=0., stddev=0.2, rng=rng)
-    y2 = smooth_exponential(x=length, base=1.1, mean=1., stddev=0.2, rng=rng)
-    boxes = tf.transpose([y1, x1, y2, x2])
-    boxes = tf.clip_by_value(boxes, 0.0, 1.0)
-    x = tf.reshape(x, (length, height, width, channels))
-    x = tf.image.crop_and_resize(
-        x, 
-        boxes=boxes,
-        box_indices=tf.range(batch_size * frame_count),
-        crop_size=(height, width))
-    return tf.reshape(x, (batch_size, frame_count, height, width, channels))
-
 def scale(sr: tf.float32, sc: tf.float32):
     return tf.convert_to_tensor([[[sc, 0, 0], [0, sr, 0], [0, 0, 1]]], dtype=tf.float32)
 
@@ -206,7 +189,6 @@ def demo():
         VideoRandomOperation(video_random_flip),
         VideoRandomOperation(video_random_contrast),
         VideoRandomOperation(video_random_brightness),
-        VideoRandomOperation(video_crop_and_resize),
     ])
 
     fig, ax = plt.subplots()
