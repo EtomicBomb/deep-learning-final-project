@@ -23,7 +23,7 @@ def demo():
         shuffle_batch=1000, 
         video_height=video_height, 
         video_width=video_width,
-    ).prefetch(4).batch(1).as_numpy_iterator()
+    ).batch(1).prefetch(4).as_numpy_iterator()
 
     augment_model = tf.keras.Sequential([
         VideoRandomPerspective(),
@@ -71,7 +71,7 @@ def train():
         shuffle_batch=1000, 
         video_height=video_height, 
         video_width=video_width,
-    ).prefetch(4).batch(batch_size)
+    ).batch(batch_size).prefetch(4)
     model.fit(dataset, steps_per_epoch=10, epochs=10)
 
 def evaluate():
