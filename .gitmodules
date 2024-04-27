@@ -1,0 +1,3 @@
+[submodule "VideoSwin"]
+	path = VideoSwin
+	url = https://github.com/innat/VideoSwin.git
