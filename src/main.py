@@ -13,6 +13,8 @@ from functools import reduce
 import numpy as np
 import matplotlib.pyplot as plt
 import tensorflow_graphics.image.transformer as tfg
+from argparse import ArgumentParser
+from skimage import transform
 
 def file_ptss(path: Path, frames_per_example: int) -> Dataset:
     with av.open(str(path)) as container:
@@ -95,17 +97,18 @@ def video_random_flip(x, rng):
     mask = tf.reshape(mask, (batch_size, 1, 1, 1, 1))
     return tf.where(mask == 1, x, tf.reverse(x, axis=(3,)))
 
-def smooth_exponential(x, w, base, mean, stddev, rng):
+def smooth_exponential(x, base, mean, stddev, rng):
     """
     x: length 
     w: size of the window (convolution window has length 2 * w - 1)
     base: larger means sharper exponential
     """
+    w = x
     w = base ** tf.range(w, dtype=tf.float32)
     w = tf.concat((w[:-1], tf.reverse(w, axis=(0,))), axis=0)
     w = w / tf.reduce_sum(w)
     w = tf.reshape(w, (-1, 1, 1))
-    x = x + len(w) - 1
+    x = x + w.shape[0] - 1
     x = rng.truncated_normal(shape=(1, x, 1), mean=mean, stddev=stddev)
     x = tf.nn.convolution(x, w)
     x = tf.reshape(x, (-1,))
@@ -113,14 +116,14 @@ def smooth_exponential(x, w, base, mean, stddev, rng):
 
 def video_random_contrast(x, rng):
     batch_size, frame_count, height, width, channels = x.shape
-    mask = smooth_exponential(x=batch_size * frame_count, w=30, base=1.1, mean=1., stddev=1.5, rng=rng)
+    mask = smooth_exponential(x=batch_size * frame_count, base=1.1, mean=1., stddev=1.5, rng=rng)
     mask = tf.reshape(mask, (batch_size, frame_count, 1, 1, 1))
     x = (x - 0.5) * mask + 0.5
     return tf.clip_by_value(x, 0.0, 1.0)
 
 def video_random_brightness(x, rng):
     batch_size, frame_count, height, width, channels = x.shape
-    mask = smooth_exponential(x=batch_size * frame_count, w=30, base=1.1, mean=1., stddev=1.5, rng=rng)
+    mask = smooth_exponential(x=batch_size * frame_count, base=1.1, mean=1., stddev=1.5, rng=rng)
     mask = tf.reshape(mask, (batch_size, frame_count, 1, 1, 1))
     x = x * mask
     return tf.clip_by_value(x, 0.0, 1.0)
@@ -128,10 +131,10 @@ def video_random_brightness(x, rng):
 def video_crop_and_resize(x, rng):
     batch_size, frame_count, height, width, channels = x.shape
     length = batch_size * frame_count
-    x1 = smooth_exponential(x=length, w=30, base=1.1, mean=0., stddev=0.2, rng=rng)
-    x2 = smooth_exponential(x=length, w=30, base=1.1, mean=1., stddev=0.2, rng=rng)
-    y1 = smooth_exponential(x=length, w=30, base=1.1, mean=0., stddev=0.2, rng=rng)
-    y2 = smooth_exponential(x=length, w=30, base=1.1, mean=1., stddev=0.2, rng=rng)
+    x1 = smooth_exponential(x=length, base=1.1, mean=0., stddev=0.2, rng=rng)
+    x2 = smooth_exponential(x=length, base=1.1, mean=1., stddev=0.2, rng=rng)
+    y1 = smooth_exponential(x=length, base=1.1, mean=0., stddev=0.2, rng=rng)
+    y2 = smooth_exponential(x=length, base=1.1, mean=1., stddev=0.2, rng=rng)
     boxes = tf.transpose([y1, x1, y2, x2])
     boxes = tf.clip_by_value(boxes, 0.0, 1.0)
     x = tf.reshape(x, (length, height, width, channels))
@@ -142,67 +145,47 @@ def video_crop_and_resize(x, rng):
         crop_size=(height, width))
     return tf.reshape(x, (batch_size, frame_count, height, width, channels))
 
-def translation(v: tf.float32, h: tf.float32):
-    return tf.convert_to_tensor([[[1, 0, h], [0, 1, v], [0, 0, 1],]], dtype=tf.float32)
+def scale(sr: tf.float32, sc: tf.float32):
+    return tf.convert_to_tensor([[[sc, 0, 0], [0, sr, 0], [0, 0, 1]]], dtype=tf.float32)
 
-# 0.1 -> -0.1
-# 0.9 -> 1.1
-# 0.9 + 2 - 2 * 0.9)
+def translation(tr: tf.float32, tc: tf.float32):
+    return tf.convert_to_tensor([[[1, 0, tc], [0, 1, tr], [0, 0, 1]]], dtype=tf.float32)
 
-inputs = [
-    [0, 0],
-    [1, 0],
-    [0, 1],
-    [1, 1],
-]
-
-inputs = [
-    [0, 0],
-    [1, 0],
-    [0, 1],
-    [1, 1],
-]
-out1 = [
-
-# def warp_crop_boxes(warp, height, width):
-#     height = tf.cast(height, tf.float32)
-#     width = tf.cast(width, tf.float32)
-#     corners = [[0, 0, 1], [0, height-1, 1], [width-1, 0, 1], [width-1, height-1, 1]] # 4, 3 -> 
-#     corners = tf.reshape(corners, (4, 1, 3, 1))
-#     corners = tf.cast(corners, tf.float32)
-#     corners = warp @ corners # -> 4, 3, 1
-#     corners = corners[:, :, :2, 0] / corners[:, :, 2:, 0] # -> 4, N, 2
-#     corners = corners / tf.reshape([width - 1, height], (1, 1, 2))
-# #     corners = tf.clip_by_value(corners, 0.0, 1.0)
-#     cs, rs = tf.unstack(corners, axis=2) # -> 4, N
-#     print(cs.shape)
-#     y1 = tf.math.reduce_min(rs, axis=(0,))
-#     x1 = tf.math.reduce_min(cs, axis=(0,))
-#     y2 = tf.math.reduce_max(rs, axis=(0,))
-#     x2 = tf.math.reduce_max(cs, axis=(0,))
-#     boxes = tf.transpose([y1, x1, y2, x2])
-#     print(boxes)
-#     return boxes
-
-def video_perspective_transform(x, rng):
-    batch_size, frame_count, height, width, channels = x.shape
-    length = batch_size * frame_count
-    t = smooth_exponential(x=length, w=50, base=1.1, mean=10.0, stddev=0., rng=rng)
-    a = smooth_exponential(x=length, w=50, base=1.1, mean=0., stddev=0.0, rng=rng)
-    b = smooth_exponential(x=length, w=50, base=1.1, mean=0., stddev=0.0, rng=rng)
-    c = smooth_exponential(x=length, w=50, base=1.1, mean=1., stddev=0.0, rng=rng)
-    o = tf.ones_like(a)
-    z = tf.zeros_like(a)
-    warp = tf.transpose([[o, z, t], [z, o, z], [a, b, c]], perm=(2, 0, 1))
-    warp = translation(height/2, width/2) @ warp @ translation(-height/2, -width/2)
-    x = tf.reshape(x, (length, height, width, channels))
-    x = tfg.perspective_transform(x, warp)
-    x = tf.image.crop_and_resize(
-        x, 
-        boxes=warp_crop_boxes(warp, height, width),
-        box_indices=tf.range(length),
-        crop_size=(height, width))
-    return tf.reshape(x, (batch_size, frame_count, height, width, channels))
+def video_perspective_transform():
+    corners = {(0, 0): (-1, 0), (0, 1): (0, 2), (1, 0): (1, -1), (1, 1): (2, 1)}
+    src = list(corners)
+    warp_basis = []
+    for corner, tweak in corners.items():
+        dst = [tweak if s == corner else s for s in src]
+        tform = transform.ProjectiveTransform()
+        success = tform.estimate(np.array(dst) - 0.5, np.array(src) - 0.5, )
+        assert success
+        warp_basis += [tform.params]
+    warp_basis = tf.convert_to_tensor(warp_basis, dtype=np.float32)
+    warp_basis = tf.reshape(warp_basis, (4, 1, 3, 3))
+    def ret(x, rng):
+        batch_size, frame_count, height, width, channels = x.shape
+        length = batch_size * frame_count
+        a = smooth_exponential(x=length, base=1.1, mean=0., stddev=5.0, rng=rng)
+        b = smooth_exponential(x=length, base=1.1, mean=0., stddev=5.0, rng=rng)
+        c = smooth_exponential(x=length, base=1.1, mean=0., stddev=5.0, rng=rng)
+        d = smooth_exponential(x=length, base=1.1, mean=0., stddev=5.0, rng=rng)
+        warp = tf.reshape([a, b, c, d], (4, length, 1, 1))
+        warp = tf.math.maximum(warp, 0.0)
+        warp = warp * warp_basis + (1 - warp) * tf.eye(3)
+        warp = tf.reduce_sum(warp, axis=0)
+        warp = (
+            scale(height-1, width-1) 
+            @ translation(0.5, 0.5)
+            @ warp
+            @ translation(-0.5, -0.5)
+            @ scale(1/(height-1), 1/(width-1))
+        )
+        x = tf.reshape(x, (length, height, width, channels))
+        x = tfg.perspective_transform(x, warp)
+        x = tf.reshape(x, (batch_size, frame_count, height, width, channels))
+        return x
+    return ret
 
 def demo():
     frames_per_example = 30 * 3
@@ -211,7 +194,7 @@ def demo():
     data = json.loads(Path('data/split.json').read_text())
     data = data['train'][:1] # select only one participant so we can see changes easily
     data = get_dataset(
-        data, 
+        data,
         frames_per_example, 
         shuffle_batch=1000, 
         video_height=video_height, 
@@ -219,11 +202,11 @@ def demo():
     ).prefetch(4)
 
     augment_model = tf.keras.Sequential([
-        VideoRandomOperation(video_perspective_transform),
-#         VideoRandomOperation(video_random_flip),
-#         VideoRandomOperation(video_random_contrast),
-#         VideoRandomOperation(video_random_brightness),
-#         VideoRandomOperation(video_crop_and_resize),
+        VideoRandomOperation(video_perspective_transform()),
+        VideoRandomOperation(video_random_flip),
+        VideoRandomOperation(video_random_contrast),
+        VideoRandomOperation(video_random_brightness),
+        VideoRandomOperation(video_crop_and_resize),
     ])
 
     fig, ax = plt.subplots()
@@ -237,7 +220,48 @@ def demo():
     ani = animation.FuncAnimation(fig, animate, data, cache_frame_data=False, blit=True, interval=1)
     plt.show()
 
-demo()
-# train = get_dataset(splits['train']).batch(8).prefetch(2)
-# test = get_dataset(splits['test']).batch(8).prefetch(2)
-# validation = get_dataset(splits['validation']).batch(8).prefetch(2)
+def train():
+    from model import Model 
+    batch_size = 4
+    frames_per_example = 30 * 3
+    video_height = 112
+    video_width = 224
+    model = Model(
+        batch_size=batch_size,
+        frames_per_example=frames_per_example,
+        video_height=video_height,
+        video_width=video_width,
+        channels=1,
+        num_classes=3,
+    ) # classifying 3 levels of drowsiness: low, med, high
+    model.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=1e-3),
+        loss='binary_cross_entropy',
+        metrics=['accuracy'],
+    )
+
+    splits = json.loads(Path('data/split.json').read_text())
+    dataset = splits['train'][:1]
+    dataset = get_dataset(
+        dataset, 
+        frames_per_example, 
+        shuffle_batch=1000, 
+        video_height=video_height, 
+        video_width=video_width,
+    ).prefetch(4).batch(batch_size)
+    model.fit(dataset, steps_per_epoch=10, epochs=10)
+
+def evaluate():
+    assert False, 'TODO'
+    test_loss, test_acc = model.evaluate(dataset)
+
+if __name__ == '__main__':
+    modes = dict(demo=demo, train=train, evaluate=evaluate)
+    parser = ArgumentParser(
+        prog='drowsiness classifier',
+        description='sees if someone is drowsy',
+        epilog='text at the bottom of help')
+    parser.add_argument('-m', '--mode', choices=list(modes), default=next(iter(modes)))
+    args = parser.parse_args()
+
+    modes[args.mode]()
