@@ -3,5 +3,5 @@ tensorflow
 numpy
 matplotlib
 av
-tensorflow_graphics
+keras_cv
 # dlib

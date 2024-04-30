@@ -42,6 +42,7 @@ def get_dataset(
     frames_per_example: int,
     video_height: int,
     video_width: int,
+    channels: int = 1,
 ) -> Dataset:
     data = [
         more_data(data_root, paths, 0, frames_per_example),
@@ -72,5 +73,8 @@ def get_dataset(
                     frames.append(tf.convert_to_tensor(frame))
             return tf.stack(frames)
     data = data.map(lambda pts, path, label: (fetch_segment(pts, path, frames_per_example), label))
+
+    data_shape = (frames_per_example, video_height, video_width, channels)
+    data = data.map(lambda data, label: (tf.ensure_shape(data, data_shape), tf.ensure_shape(label, ())))
     return data
 

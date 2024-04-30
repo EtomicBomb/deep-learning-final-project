@@ -4,10 +4,8 @@ from tensorflow import keras
 import numpy as np
 from collections import namedtuple
 from dataclasses import dataclass
+import keras_cv
 import warnings
-with warnings.catch_warnings():
-    warnings.simplefilter('ignore')
-    import tensorflow_graphics.image.transformer as tfg
 
 @dataclass
 class Dimensions:
@@ -110,7 +108,6 @@ class VideoRandomPerspective(VideoRandomOperation):
         return tf.convert_to_tensor([[[1, 0, tc], [0, 1, tr], [0, 0, 1]]], dtype=tf.float32)
 
     def operation(self, x, s, rng):
-#         batch_size, frame_count, height, width, channels = x.shape
         l = s.batch_size * s.frame_count
         warp = [self.smooth(l), self.smooth(l), self.smooth(l), self.smooth(l)]
         warp = tf.reshape(warp, (4, l, 1, 1))
@@ -124,8 +121,10 @@ class VideoRandomPerspective(VideoRandomOperation):
             @ self.translation(-0.5, -0.5)
             @ self.scale(1/(s.height-1), 1/(s.width-1))
         )
+        warp = tf.reshape(warp, (l, 3 * 3))
+        warp = warp[:, :8] / warp[:, 8:]
         x = tf.reshape(x, (l, s.height, s.width, s.channels))
-        x = tfg.perspective_transform(x, warp)
+        x = keras_cv.src.utils.preprocessing.transform(x, warp, fill_mode='constant')
         x = tf.reshape(x, s.shape)
         return x
 

@@ -37,6 +37,7 @@ data = get_dataset(
     frames_per_example=frames_per_example, 
     video_height=video_height, 
     video_width=video_width,
+    channels=1,
 )
 data = data.batch(batch_size)
 data = data.map(lambda x, y: (augment_model(x), y))
