@@ -17,6 +17,7 @@ def file_ptss(path: Path, frames_per_example: int) -> Dataset:
         return Dataset.from_tensor_slices(stream)
 
 def more_data(
+    data_root: str,
     paths: Iterable[str], 
     label: int, 
     frames_per_example: int,
@@ -26,7 +27,7 @@ def more_data(
     """
     ret = []
     for path in paths:
-        path, = Path('data/extract', path).glob(f'{label}*.mp4')
+        path, = Path(data_root, 'extract', path).glob(f'{label}*.mp4')
         ptss = file_ptss(path, frames_per_example)
         ptss = ptss.map(lambda pts: (pts, str(path)))
         ret += [ptss]
@@ -35,6 +36,7 @@ def more_data(
     return ret
 
 def get_dataset(
+    data_root: str,
     paths: Iterable[str], 
     shuffle_batch: int,
     frames_per_example: int,
@@ -42,9 +44,9 @@ def get_dataset(
     video_width: int,
 ) -> Dataset:
     data = [
-        more_data(paths, 0, frames_per_example),
-        more_data(paths, 5, frames_per_example),
-        more_data(paths, 10, frames_per_example),
+        more_data(data_root, paths, 0, frames_per_example),
+        more_data(data_root, paths, 5, frames_per_example),
+        more_data(data_root, paths, 10, frames_per_example),
     ]
     data = Dataset.sample_from_datasets(data, rerandomize_each_iteration=True) 
     data = data.shuffle(data.cardinality(), reshuffle_each_iteration=True)

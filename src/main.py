@@ -31,7 +31,8 @@ augment_model = keras.Sequential([
 data = json.loads(Path('data/split.json').read_text())
 data = data['train'][:1] # select only one participant so we can see changes easily
 data = get_dataset(
-    data,
+    data_root='data',
+    paths=data,
     shuffle_batch=1000, 
     frames_per_example=frames_per_example, 
     video_height=video_height, 
