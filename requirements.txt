@@ -5,3 +5,4 @@ matplotlib
 av
 tensorflow_graphics
 # dlib
+keras_cv

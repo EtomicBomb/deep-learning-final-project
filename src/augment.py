@@ -1,6 +1,7 @@
 from skimage import transform
 import tensorflow as tf
 from tensorflow import keras
+import keras_cv
 import numpy as np
 from collections import namedtuple
 from dataclasses import dataclass
@@ -18,6 +19,39 @@ class Dimensions:
     channels: int
     shape: tuple[int, ...]
 
+class Preprocess(keras.layers.Layer):
+    def __init__(self, *args, rng=None, smooth_base=None, smooth_mean=None, smooth_std=None, **kwargs):
+        super().__init__(*args, trainable=False, **kwargs)
+        self.s = None
+    
+    def build(self, shape):
+        self.s = Dimensions(
+            batch_size=shape[0],
+            frame_count=shape[1],
+            height=shape[2],
+            width=shape[3],
+            channels=shape[4],
+            shape=shape,
+        )
+
+class Scale(Preprocess):
+    def call(self, x):
+        print(f"running Scale...")
+        dims = x.shape # [batch, frames, height, width, channels]
+        x = tf.reshape(x, [dims[0]*dims[1], dims[2], dims[3], dims[4]]) # flatten batch & frames dimensions 
+        x = tf.image.resize_with_pad(x, target_height=224, target_width=224) 
+        x = tf.reshape(x, [dims[0], dims[1], 224, dims[3], dims[4]])
+        return x
+
+class Gray2RGB(Preprocess):
+    def call(self, x):
+        print(f"running Gray2RGB...")
+        # tf.tile(x[..., tf.newaxis, [1, 1, 1,3]])
+        
+class MakeGif(Preprocess):
+    def call(self, x):
+        print(f"running makeGif...")
+        pass
 class VideoRandomOperation(keras.layers.Layer):
     def __init__(self, *args, rng=None, smooth_base=None, smooth_mean=None, smooth_std=None, **kwargs):
         super().__init__(*args, trainable=False, **kwargs)
@@ -110,7 +144,6 @@ class VideoRandomPerspective(VideoRandomOperation):
         return tf.convert_to_tensor([[[1, 0, tc], [0, 1, tr], [0, 0, 1]]], dtype=tf.float32)
 
     def operation(self, x, s, rng):
-#         batch_size, frame_count, height, width, channels = x.shape
         l = s.batch_size * s.frame_count
         warp = [self.smooth(l), self.smooth(l), self.smooth(l), self.smooth(l)]
         warp = tf.reshape(warp, (4, l, 1, 1))
@@ -124,8 +157,9 @@ class VideoRandomPerspective(VideoRandomOperation):
             @ self.translation(-0.5, -0.5)
             @ self.scale(1/(s.height-1), 1/(s.width-1))
         )
+        warp = tf.reshape(warp, (l, 3 * 3))
+        warp = warp[:, :8] / warp[:, 8:]
         x = tf.reshape(x, (l, s.height, s.width, s.channels))
-        x = tfg.perspective_transform(x, warp)
+        x = keras_cv.src.utils.preprocessing.transform(x, warp, fill_mode='constant')
         x = tf.reshape(x, s.shape)
         return x
-
