@@ -38,7 +38,6 @@ class Scale(Preprocess):
     def call(self, x):
         print(f"running Scale...")
         dims = x.shape # [batch, frames, height, width, channels]
-        # print(f"dims: {dims}")
         x = tf.reshape(x, [dims[0]*dims[1], dims[2], dims[3], dims[4]]) # flatten batch & frames dimensions 
         x = tf.image.resize_with_pad(x, target_height=224, target_width=224) 
         x = tf.reshape(x, [dims[0], dims[1], 224, dims[3], dims[4]])
@@ -47,25 +46,10 @@ class Scale(Preprocess):
 class Gray2RGB(Preprocess):
     def call(self, x):
         print(f"running Gray2RGB...")
-        # print(f"x shape orig: {x.shape}")
-        # tf.print("x mapped value before: ", x[:, :, :, :, 0])
-        # tf.print("x mapped value before: ", x[..., 0])
-
-        # this definitely changes the number of channels from 1->3 but
-        # I'm not sure if it broadcasts the value 
         rgb_dims = [1, 1, 1, 1, 3]
         x = tf.tile(x, rgb_dims)
-        # 
-        # tf.print("x mapped value after: ", x[:, :, :, :, 0])
-        # tf.print("x mapped value after: ", x[..., 0])
-        # tf.print(x[..., 1])
-        # tf.print(x[..., 2])
         return x
-        
-class MakeGif(Preprocess):
-    def call(self, x):
-        print(f"running makeGif...")
-        pass
+
 class VideoRandomOperation(keras.layers.Layer):
     def __init__(self, *args, rng=None, smooth_base=None, smooth_mean=None, smooth_std=None, **kwargs):
         super().__init__(*args, trainable=False, **kwargs)

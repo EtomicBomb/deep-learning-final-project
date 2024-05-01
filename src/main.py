@@ -8,12 +8,13 @@ import json
 import matplotlib.pyplot as plt
 from argparse import ArgumentParser
 from dataclasses import dataclass
+import time
 
 from dataset import get_dataset
 from augment import VideoRandomPerspective, VideoRandomFlip, VideoRandomContrast, VideoRandomBrightness, Scale, Gray2RGB
 
 batch_size = 2
-frames_per_example = 30 * 3
+frames_per_example = 250
 video_height = 112
 video_width = 224
 channels = 1
@@ -47,6 +48,8 @@ data = data.prefetch(4)
 def demo():
     fig, ax = plt.subplots()
     global data
+    print(f"data type: {type(data)}")
+    print(f"data: {data}")
     data = data.as_numpy_iterator()
     data = iter((frame, label) for batch, labels in data for video, label in zip(batch, labels) for frame in video)
     image = ax.imshow(next(data)[0], cmap='gray')
