@@ -7,7 +7,6 @@ from pathlib import Path
 import json
 import matplotlib.pyplot as plt
 from argparse import ArgumentParser
-from dataclasses import dataclass
 import time
 
 from dataset import get_dataset
