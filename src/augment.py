@@ -4,19 +4,11 @@ from tensorflow import keras
 import keras_cv
 import numpy as np
 from collections import namedtuple
-from dataclasses import dataclass
 import keras_cv
 import warnings
 from abc import ABC, abstractmethod
 
-@dataclass
-class Dimensions:
-    batch_size: int
-    frame_count: int
-    height: int
-    width: int
-    channels: int
-    shape: tuple[int, ...]
+from dimensions import Dimensions
 
 class PreprocessingLayer(keras.layers.Layer, ABC):
     def __init__(self, *args, **kwargs):
@@ -30,7 +22,6 @@ class PreprocessingLayer(keras.layers.Layer, ABC):
             height=shape[2],
             width=shape[3],
             channels=shape[4],
-            shape=shape,
         )
         
     @abstractmethod

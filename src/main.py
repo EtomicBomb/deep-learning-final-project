@@ -12,17 +12,19 @@ import time
 
 from dataset import get_dataset
 from augment import VideoRandomPerspective, VideoRandomFlip, VideoRandomContrast, VideoRandomMultiply, VideoRandomAdd, VideoRandomNoise, VideoCropAndResize, ClipZeroOne, Scale, Gray2RGB
+from dimensions import Dimensions
 
-batch_size = 2
-frames_per_example = 250
-video_height = 112
-video_width = 224
-channels = 1
-num_classes = 3
+s = Dimensions(
+    batch_size=2,
+    frame_count=32,
+    height=112,
+    width=224,
+    channels=1,
+)
 rng = tf.random.Generator.from_non_deterministic_state()
 
 augment_model = keras.Sequential([
-    keras.Input(shape=(frames_per_example, video_height, video_width, channels), batch_size=batch_size),
+    keras.Input(shape=(s.example_shape), batch_size=s.batch_size),
     VideoCropAndResize(),
     VideoRandomNoise(rng=rng),
     VideoRandomPerspective(rng=rng),
@@ -38,22 +40,16 @@ augment_model = keras.Sequential([
 data = json.loads(Path('data/split.json').read_text())
 data = data['train'] # select only one participant so we can see changes easily
 data = get_dataset(
-    data_root='data',
+    data_root='data/extract',
     paths=data,
-    shuffle_batch=1000, 
-    frames_per_example=frames_per_example, 
-    video_height=video_height, 
-    video_width=video_width,
-    channels=1,
+    s=s,
 )
-data = data.batch(batch_size)
 data = data.map(lambda x, y: (augment_model(x), y))
 data = data.prefetch(4)
 
 def demo():
     fig, ax = plt.subplots()
     global data
-    print(f"data type: {type(data)}")
     print(f"data: {data}")
     data = data.as_numpy_iterator()
     data = iter((frame, label) for batch, labels in data for video, label in zip(batch, labels) for frame in video)
@@ -61,34 +57,13 @@ def demo():
     def animate(data):
         x, y = data
         image.set_data(x)
-        # print(y)
+        print(y)
         return [image]
     ani = FuncAnimation(fig, animate, data, cache_frame_data=False, blit=True, interval=1)
     plt.show()
 
-def train():
-    from model import Model 
-    model = Model(
-        batch_size=batch_size,
-        frames_per_example=frames_per_example,
-        video_height=video_height,
-        video_width=video_width,
-        channels=channels,
-        num_classes=num_classes,
-    ) # classifying 3 levels of drowsiness: low, med, high
-    model.compile(
-        optimizer=keras.optimizers.Adam(learning_rate=1e-3),
-        loss='binary_cross_entropy',
-        metrics=['accuracy'],
-    )
-    model.fit(data, steps_per_epoch=10, epochs=10)
-
-def evaluate():
-    assert False, 'TODO'
-    test_loss, test_acc = model.evaluate(dataset)
-
 if __name__ == '__main__':
-    modes = dict(demo=demo, train=train, evaluate=evaluate)
+    modes = dict(demo=demo)
     parser = ArgumentParser(
         prog='drowsiness classifier',
         description='sees if someone is drowsy',

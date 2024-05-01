@@ -7,55 +7,58 @@ from itertools import islice
 import tensorflow as tf
 from pathlib import Path
 
-def file_ptss(path: Path, frames_per_example: int) -> Dataset:
+from dimensions import Dimensions
+
+def index_video(path: Path, frame_count: int) -> Dataset:
+    """
+    Returns a dataset over the presentation timestamps in the source video (tf.int64)
+    """
     with av.open(str(path)) as container:
         stream, = container.streams
-        stream = (frame.pts for frame in container.demux(stream) if frame.pts is not None)
-        stream = islice(stream, 0, None, frames_per_example)
+        stream = container.demux(stream)
+        stream = (frame.pts for frame in stream if frame.pts is not None)
+        stream = islice(stream, 0, None, frame_count)
         stream = np.fromiter(stream, np.int64)
         stream = stream[:-1]
         return Dataset.from_tensor_slices(stream)
 
-def more_data(
-    data_root: str,
+def index_videos(
     paths: Iterable[str], 
-    label: int, 
-    frames_per_example: int,
-) -> Dataset:
+    label: str, 
+    frame_count: int,
+) -> tuple[Dataset]:
     """
-    returns: Dataset[pts: int32, path: str, label: int]
+    returns a dataset over the presentation timestamps in all the source videos
+    returns: Dataset[pts: int64, path: str]
     """
     ret = []
     for path in paths:
-        path, = Path(data_root, 'extract', path).glob(f'{label}*.mp4')
-        ptss = file_ptss(path, frames_per_example)
+        path, = path.glob(f'{label}*.mp4')
+        ptss = index_video(path, frame_count)
         ptss = ptss.map(lambda pts: (pts, str(path)))
         ret += [ptss]
-    ret = reduce(Dataset.concatenate, ret)
-    ret = ret.map(lambda pts, path: (pts, path, label))
-    return ret
+    return reduce(Dataset.concatenate, ret)
 
 def get_dataset(
     data_root: str,
     paths: Iterable[str], 
-    shuffle_batch: int,
-    frames_per_example: int,
-    video_height: int,
-    video_width: int,
-    channels: int = 1,
+    s: Dimensions,
 ) -> Dataset:
+    """
+    @param data_root the path ending in data/extract
+    @param paths paths relative to data_root
+    """
+    paths = [Path(data_root, path) for path in paths]
     data = [
-        more_data(data_root, paths, 0, frames_per_example),
-        more_data(data_root, paths, 5, frames_per_example),
-        more_data(data_root, paths, 10, frames_per_example),
+        index_videos(paths, '0', s.frame_count).map(lambda pts, path: (pts, path, 0)),
+        index_videos(paths, '5', s.frame_count).map(lambda pts, path: (pts, path, 1)),
+        index_videos(paths, '10', s.frame_count).map(lambda pts, path: (pts, path, 2)),
     ]
-    data = Dataset.sample_from_datasets(data, rerandomize_each_iteration=True) 
+    data = Dataset.sample_from_datasets(data, stop_on_empty_dataset=True, rerandomize_each_iteration=True) 
     data = data.shuffle(data.cardinality(), reshuffle_each_iteration=True)
-    data = data.repeat()
-    data = data.shuffle(shuffle_batch, reshuffle_each_iteration=True)
 
-    @tf.py_function(Tout=tf.TensorSpec(shape=(frames_per_example, video_height, video_width, 1), dtype=tf.float32))
-    def fetch_segment(pts: tf.int64, path: tf.string, frames_per_example: tf.int64): 
+    @tf.py_function(Tout=tf.TensorSpec(shape=(s.example_shape), dtype=tf.float32))
+    def fetch_segment(pts: tf.int64, path: tf.string, frame_count: tf.int64): 
         path = path.numpy().decode('utf-8')
         pts = int(pts.numpy())
         with av.open(path) as container:
@@ -63,18 +66,21 @@ def get_dataset(
             container.seek(pts, backward=True, any_frame=False, stream=stream)
             stream = iter(container.decode(stream))
             frames = []
-            while len(frames) < frames_per_example:
+            while len(frames) < frame_count:
                 frame = next(stream)
                 if frame.pts >= pts:
                     frame = frame.to_ndarray()
-                    frame = frame[:video_height, :video_width] # XXX: why?
-                    frame = np.expand_dims(frame, -1)
+                    frame = frame[:s.height] # XXX: why?
+                    frame = np.atleast_3d(frame)
                     frame = np.float32(frame) / 255.0
                     frames.append(tf.convert_to_tensor(frame))
             return tf.stack(frames)
-    data = data.map(lambda pts, path, label: (fetch_segment(pts, path, frames_per_example), label))
-
-    data_shape = (frames_per_example, video_height, video_width, channels)
-    data = data.map(lambda data, label: (tf.ensure_shape(data, data_shape), tf.ensure_shape(label, ())))
+    data = data.map(lambda pts, path, label: (fetch_segment(pts, path, s.frame_count), label))
+    data = data.map(lambda data, label: (
+        tf.ensure_shape(data, (s.example_shape)), 
+        tf.ensure_shape(label, ()),
+    ))
+    data = data.repeat()
+    data = data.batch(s.batch_size)
     return data
 
