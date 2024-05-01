@@ -8,12 +8,13 @@ import json
 import matplotlib.pyplot as plt
 from argparse import ArgumentParser
 from dataclasses import dataclass
+import time
 
 from dataset import get_dataset
-from augment import VideoRandomPerspective, VideoRandomFlip, VideoRandomContrast, VideoRandomBrightness
+from augment import VideoRandomPerspective, VideoRandomFlip, VideoRandomContrast, VideoRandomBrightness, Scale, Gray2RGB
 
 batch_size = 2
-frames_per_example = 30 * 3
+frames_per_example = 250
 video_height = 112
 video_width = 224
 channels = 1
@@ -26,6 +27,8 @@ augment_model = keras.Sequential([
     VideoRandomFlip(rng=rng),
     VideoRandomContrast(rng=rng),
     VideoRandomBrightness(rng=rng),
+    Scale(),
+    Gray2RGB(),
 ])
 
 data = json.loads(Path('data/split.json').read_text())
@@ -37,8 +40,7 @@ data = get_dataset(
     frames_per_example=frames_per_example, 
     video_height=video_height, 
     video_width=video_width,
-    channels=1,
-)
+) # channels = 1 (removed this argument due to an unexpected argument error)
 data = data.batch(batch_size)
 data = data.map(lambda x, y: (augment_model(x), y))
 data = data.prefetch(4)
@@ -46,13 +48,15 @@ data = data.prefetch(4)
 def demo():
     fig, ax = plt.subplots()
     global data
+    print(f"data type: {type(data)}")
+    print(f"data: {data}")
     data = data.as_numpy_iterator()
     data = iter((frame, label) for batch, labels in data for video, label in zip(batch, labels) for frame in video)
     image = ax.imshow(next(data)[0], cmap='gray')
     def animate(data):
         x, y = data
         image.set_data(x)
-        print(y)
+        # print(y)
         return [image]
     ani = FuncAnimation(fig, animate, data, cache_frame_data=False, blit=True, interval=1)
     plt.show()
