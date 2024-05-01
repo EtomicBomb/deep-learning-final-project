@@ -1,6 +1,7 @@
 from skimage import transform
 import tensorflow as tf
 from tensorflow import keras
+import keras_cv
 import numpy as np
 from collections import namedtuple
 from dataclasses import dataclass
@@ -20,7 +21,8 @@ class Dimensions:
 class PreprocessingLayer(keras.layers.Layer, ABC):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, trainable=False, **kwargs)
-
+        self.s = None
+    
     def build(self, shape):
         self.s = Dimensions(
             batch_size=shape[0],
@@ -30,13 +32,50 @@ class PreprocessingLayer(keras.layers.Layer, ABC):
             channels=shape[4],
             shape=shape,
         )
-
+        
     @abstractmethod
     def operation(self, x, s):
         ...
 
     def call(self, x):
         return self.operation(x, self.s)
+
+class Scale(PreprocessingLayer):
+    def operation(self, x, s):
+        dims = s.shape
+        print(f"running Scale...")
+        x = tf.reshape(x, [dims[0]*dims[1], dims[2], dims[3], dims[4]]) # flatten batch & frames dimensions 
+        x = tf.image.resize_with_pad(x, target_height=224, target_width=224) 
+        x = tf.reshape(x, [dims[0], dims[1], 224, dims[3], dims[4]])
+        return x
+
+class Gray2RGB(PreprocessingLayer):
+    def operation(self, x, dims):
+        print(f"running Gray2RGB...")
+        rgb_dims = [1, 1, 1, 1, 3]
+        x = tf.tile(x, rgb_dims)
+        return x
+
+class ClipZeroOne(PreprocessingLayer):
+    def operation(self, x, s):
+        return tf.clip_by_value(x, 0.0, 1.0)
+
+class VideoCropAndResize(PreprocessingLayer):
+    def operation(self, x, s):
+        l = s.batch_size * s.frame_count
+        x = tf.reshape(x, (l, s.height, s.width, s.channels))
+        cut_from_height = 40
+        cut_from_width = 40
+        x = tf.image.crop_to_bounding_box(
+            x, 
+            cut_from_height, 
+            cut_from_width, 
+            s.height - 2 * cut_from_height, 
+            s.width - 2 * cut_from_width,
+        )
+        x = tf.image.resize(x, (s.height, s.width))
+        x = tf.reshape(x, s.shape)
+        return x
 
 class VideoRandomAugmentation(PreprocessingLayer, ABC):
     def __init__(self, *args, rng=None, augment_fraction=0.5, smooth_base=None, smooth_mean=None, smooth_std=None, **kwargs):
@@ -74,33 +113,6 @@ class VideoRandomAugmentation(PreprocessingLayer, ABC):
         mask = self.rng.binomial(shape=(self.s.batch_size, 1, 1, 1, 1), counts=1., probs=probs)
         x_augmented = self.operation(x, self.s, self.rng)
         return tf.where(mask == 1, x, x_augmented)
-
-class ClipZeroOne(PreprocessingLayer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def operation(self, x, s):
-        return tf.clip_by_value(x, 0.0, 1.0)
-
-class VideoCropAndResize(PreprocessingLayer):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-
-    def operation(self, x, s):
-        l = s.batch_size * s.frame_count
-        x = tf.reshape(x, (l, s.height, s.width, s.channels))
-        cut_from_height = 40
-        cut_from_width = 40
-        x = tf.image.crop_to_bounding_box(
-            x, 
-            cut_from_height, 
-            cut_from_width, 
-            s.height - 2 * cut_from_height, 
-            s.width - 2 * cut_from_width,
-        )
-        x = tf.image.resize(x, (s.height, s.width))
-        x = tf.reshape(x, s.shape)
-        return x
 
 class VideoRandomNoise(VideoRandomAugmentation):
     def __init__(self, *args, **kwargs):
@@ -197,4 +209,3 @@ class VideoRandomPerspective(VideoRandomAugmentation):
         x = keras_cv.src.utils.preprocessing.transform(x, warp, fill_mode='constant')
         x = tf.reshape(x, s.shape)
         return x
-
