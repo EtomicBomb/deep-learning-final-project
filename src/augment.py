@@ -68,23 +68,36 @@ class VideoRandomAugmentation(PreprocessingLayer, ABC):
         ...
 
     def call(self, x, training=True):
-        augment_fraction = self.augment_fraction if training else 0.0
-        if augment_fraction == 0.0:
+        probs = self.augment_fraction if training else 0.0
+        if probs == 0.0:
             return x
-        mask = self.rng.binomial(shape=(self.s.batch_size,), counts=1., probs=augment_fraction)
-        mask = tf.reshape(mask, (self.s.batch_size, 1, 1, 1, 1))
+        mask = self.rng.binomial(shape=(self.s.batch_size, 1, 1, 1, 1), counts=1., probs=probs)
         x_augmented = self.operation(x, self.s, self.rng)
         return tf.where(mask == 1, x, x_augmented)
 
-class CropAndResize(PreprocessingLayer):
+class ClipZeroOne(PreprocessingLayer):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def operation(self, x, s):
+        return tf.clip_by_value(x, 0.0, 1.0)
+
+class VideoCropAndResize(PreprocessingLayer):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
     def operation(self, x, s):
         l = s.batch_size * s.frame_count
         x = tf.reshape(x, (l, s.height, s.width, s.channels))
-        cut_off = 40
-        x = tf.image.crop_to_bounding_box(x, cut_off, 0, s.height - 2 * cut_off, s.width)
+        cut_from_height = 40
+        cut_from_width = 40
+        x = tf.image.crop_to_bounding_box(
+            x, 
+            cut_from_height, 
+            cut_from_width, 
+            s.height - 2 * cut_from_height, 
+            s.width - 2 * cut_from_width,
+        )
         x = tf.image.resize(x, (s.height, s.width))
         x = tf.reshape(x, s.shape)
         return x
@@ -104,7 +117,7 @@ class VideoRandomNoise(VideoRandomAugmentation):
         w = tf.signal.ifft3d(tf.complex(w, w))
         w = tf.math.real(w)
         w = tf.transpose(w, (1, 2, 3, 4, 0))
-        return x + w * 1e3
+        return x + w * 5e2
 
 class VideoRandomFlip(VideoRandomAugmentation):
     def __init__(self, *args, **kwargs):
@@ -119,16 +132,25 @@ class VideoRandomContrast(VideoRandomAugmentation):
         mask = self.smooth(s.batch_size * s.frame_count)
         mask = tf.reshape(mask, (s.batch_size, s.frame_count, 1, 1, 1))
         x = (x - 0.5) * mask + 0.5
-        return tf.clip_by_value(x, 0.0, 1.0)
+        return x
 
-class VideoRandomBrightness(VideoRandomAugmentation):
+class VideoRandomMultiply(VideoRandomAugmentation):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, smooth_base=1.1, smooth_mean=1., smooth_std=1.5, **kwargs)
     def operation(self, x, s, rng):
         mask = self.smooth(s.batch_size * s.frame_count)
         mask = tf.reshape(mask, (s.batch_size, s.frame_count, 1, 1, 1))
         x = x * mask
-        return tf.clip_by_value(x, 0.0, 1.0)
+        return x
+
+class VideoRandomAdd(VideoRandomAugmentation):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, smooth_base=1.1, smooth_mean=0., smooth_std=0.5, **kwargs)
+    def operation(self, x, s, rng):
+        mask = self.smooth(s.batch_size * s.frame_count)
+        mask = tf.reshape(mask, (s.batch_size, s.frame_count, 1, 1, 1))
+        x = x + mask
+        return x
 
 class VideoRandomPerspective(VideoRandomAugmentation):
     def __init__(self, *args, **kwargs):

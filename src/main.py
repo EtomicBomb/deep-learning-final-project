@@ -10,7 +10,7 @@ from argparse import ArgumentParser
 from dataclasses import dataclass
 
 from dataset import get_dataset
-from augment import VideoRandomPerspective, VideoRandomFlip, VideoRandomContrast, VideoRandomBrightness, VideoRandomNoise, CropAndResize
+from augment import VideoRandomPerspective, VideoRandomFlip, VideoRandomContrast, VideoRandomMultiply, VideoRandomAdd, VideoRandomNoise, VideoCropAndResize, ClipZeroOne
 
 batch_size = 2
 frames_per_example = 30 * 3
@@ -22,16 +22,18 @@ rng = tf.random.Generator.from_non_deterministic_state()
 
 augment_model = keras.Sequential([
     keras.Input(shape=(frames_per_example, video_height, video_width, channels), batch_size=batch_size),
-    CropAndResize(),
+    VideoCropAndResize(),
     VideoRandomNoise(rng=rng),
     VideoRandomPerspective(rng=rng),
     VideoRandomFlip(rng=rng),
     VideoRandomContrast(rng=rng),
-    VideoRandomBrightness(rng=rng),
+    VideoRandomMultiply(rng=rng),
+    VideoRandomAdd(rng=rng),
+    ClipZeroOne(),
 ])
 
 data = json.loads(Path('data/split.json').read_text())
-data = data['train'][:3] # select only one participant so we can see changes easily
+data = data['train'] # select only one participant so we can see changes easily
 data = get_dataset(
     data_root='data',
     paths=data,
