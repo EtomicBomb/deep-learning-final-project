@@ -10,7 +10,7 @@ from argparse import ArgumentParser
 from dataclasses import dataclass
 
 from dataset import get_dataset
-from augment import VideoRandomPerspective, VideoRandomFlip, VideoRandomContrast, VideoRandomBrightness, Scale
+from augment import VideoRandomPerspective, VideoRandomFlip, VideoRandomContrast, VideoRandomBrightness, Scale, Gray2RGB
 
 batch_size = 2
 frames_per_example = 30 * 3
@@ -27,6 +27,7 @@ augment_model = keras.Sequential([
     VideoRandomContrast(rng=rng),
     VideoRandomBrightness(rng=rng),
     Scale(),
+    Gray2RGB(),
 ])
 
 data = json.loads(Path('data/split.json').read_text())
