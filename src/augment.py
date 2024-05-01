@@ -5,10 +5,8 @@ import keras_cv
 import numpy as np
 from collections import namedtuple
 from dataclasses import dataclass
+import keras_cv
 import warnings
-with warnings.catch_warnings():
-    warnings.simplefilter('ignore')
-    import tensorflow_graphics.image.transformer as tfg
 
 @dataclass
 class Dimensions:
