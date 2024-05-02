@@ -23,10 +23,10 @@ def train_test(data_root: str, split_path: str):
     )
 
     def from_split(split, augmentation: keras.Model):
-        data_split = json.loads(Path('data/split.json').read_text())
+        data_split = json.loads(Path(split_path).read_text())
         data = data_split[split]
         data = get_dataset(
-            data_root='data/extract',
+            data_root=data_root,
             paths=data,
             s=src_shape,
         )
