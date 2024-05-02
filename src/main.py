@@ -13,7 +13,7 @@ from dataset import get_dataset
 from augment import VideoRandomPerspective, VideoRandomFlip, VideoRandomContrast, VideoRandomMultiply, VideoRandomAdd, VideoRandomNoise, VideoCropAndResize, ClipZeroOne, Scale, Gray2RGB
 from dimensions import Dimensions
 
-def train_test(data_root: str, split_path: str):
+def train_test(data_root: str, split_path: str, subset=None):
     src_shape = Dimensions(
         batch_size=2,
         frame_count=32,
@@ -24,7 +24,7 @@ def train_test(data_root: str, split_path: str):
 
     def from_split(split, augmentation: keras.Model):
         data_split = json.loads(Path(split_path).read_text())
-        data = data_split[split]
+        data = data_split[split][:subset]
         data = get_dataset(
             data_root=data_root,
             paths=data,
