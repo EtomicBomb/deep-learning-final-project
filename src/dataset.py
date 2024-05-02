@@ -14,6 +14,7 @@ def index_video(path: Path, frame_count: int) -> Dataset:
     Returns a dataset over the presentation timestamps in the source video (tf.int64)
     """
     with av.open(str(path)) as container:
+        print('b', len(container.streams))
         stream, = container.streams
         stream = container.demux(stream)
         stream = (frame.pts for frame in stream if frame.pts is not None)
@@ -62,6 +63,7 @@ def get_dataset(
         path = path.numpy().decode('utf-8')
         pts = int(pts.numpy())
         with av.open(path) as container:
+            print('a', len(container.streams))
             stream, = container.streams
             container.seek(pts, backward=True, any_frame=False, stream=stream)
             stream = iter(container.decode(stream))
@@ -75,12 +77,12 @@ def get_dataset(
                     frame = np.float32(frame) / 255.0
                     frames.append(tf.convert_to_tensor(frame))
             return tf.stack(frames)
+    data = data.repeat()
     data = data.map(lambda pts, path, label: (fetch_segment(pts, path, s.frame_count), label))
     data = data.map(lambda data, label: (
         tf.ensure_shape(data, (s.example_shape)), 
         tf.ensure_shape(label, ()),
     ))
-    data = data.repeat()
     data = data.batch(s.batch_size)
     return data
 
