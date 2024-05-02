@@ -55,7 +55,7 @@ def train_test(data_root: str, split_path: str, subset=None):
     return from_split('train', augment_preprocess_model), from_split('test', preprocess_model)
 
 def demo():
-    data, _ = train_test('data/extract', 'data/split.json')
+    data, _ = train_test('data/extract', 'data/split.json', subset=3)
 
     fig, ax = plt.subplots()
     print(f"data: {data}")
