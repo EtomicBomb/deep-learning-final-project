@@ -13,42 +13,52 @@ from dataset import get_dataset
 from augment import VideoRandomPerspective, VideoRandomFlip, VideoRandomContrast, VideoRandomMultiply, VideoRandomAdd, VideoRandomNoise, VideoCropAndResize, ClipZeroOne, Scale, Gray2RGB
 from dimensions import Dimensions
 
-s = Dimensions(
-    batch_size=2,
-    frame_count=32,
-    height=112,
-    width=224,
-    channels=1,
-)
-rng = tf.random.Generator.from_non_deterministic_state()
 
-augment_model = keras.Sequential([
-    keras.Input(shape=(s.example_shape), batch_size=s.batch_size),
-    VideoCropAndResize(),
-    VideoRandomNoise(rng=rng),
-    VideoRandomPerspective(rng=rng),
-    VideoRandomFlip(rng=rng),
-    VideoRandomContrast(rng=rng),
-    VideoRandomMultiply(rng=rng),
-    VideoRandomAdd(rng=rng),
-    Scale(),
-    Gray2RGB(),
-    ClipZeroOne(),
-])
+def train_test(data_root: str, split_path: str):
+    src_shape = Dimensions(
+        batch_size=2,
+        frame_count=32,
+        height=112,
+        width=224,
+        channels=1,
+    )
 
-data = json.loads(Path('data/split.json').read_text())
-data = data['train'] # select only one participant so we can see changes easily
-data = get_dataset(
-    data_root='data/extract',
-    paths=data,
-    s=s,
-)
-data = data.map(lambda x, y: (augment_model(x), y))
-data = data.prefetch(4)
+    def from_split(split, augmentation: keras.Model):
+        data_split = json.loads(Path('data/split.json').read_text())
+        data = data_split[split]
+        data = get_dataset(
+            data_root='data/extract',
+            paths=data,
+            s=src_shape,
+        )
+        data = data.map(lambda x, y: (augmentation(x), y))
+        data = data.prefetch(4)
+        return data
+    rng = tf.random.Generator.from_non_deterministic_state()
+
+    preprocess_model = keras.Sequential([
+        Scale(),
+        Gray2RGB(),
+    ])
+
+    augment_preprocess_model = keras.Sequential([
+        keras.Input(shape=(src_shape.example_shape), batch_size=src_shape.batch_size),
+        VideoCropAndResize(),
+        #VideoRandomNoise(rng=rng), too extreme now I should tweak
+        VideoRandomPerspective(rng=rng),
+        VideoRandomFlip(rng=rng),
+        VideoRandomContrast(rng=rng),
+        VideoRandomMultiply(rng=rng),
+        VideoRandomAdd(rng=rng),
+        ClipZeroOne(),
+        preprocess_model,
+    ])
+    return from_split('train', augment_preprocess_model), from_split('test', preprocess_model)
 
 def demo():
+    data, _ = train_test('data/extract', 'data/split.json')
+
     fig, ax = plt.subplots()
-    global data
     print(f"data: {data}")
     data = data.as_numpy_iterator()
     data = iter((frame, label) for batch, labels in data for video, label in zip(batch, labels) for frame in video)

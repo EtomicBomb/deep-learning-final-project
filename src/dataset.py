@@ -33,10 +33,10 @@ def index_videos(
     """
     ret = []
     for path in paths:
-        path, = path.glob(f'{label}*.mp4')
-        ptss = index_video(path, frame_count)
-        ptss = ptss.map(lambda pts: (pts, str(path)))
-        ret += [ptss]
+        for path in path.glob(f'{label}*.mp4'):
+            ptss = index_video(path, frame_count)
+            ptss = ptss.map(lambda pts: (pts, str(path)))
+            ret += [ptss]
     return reduce(Dataset.concatenate, ret)
 
 def get_dataset(
