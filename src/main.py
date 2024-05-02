@@ -13,7 +13,6 @@ from dataset import get_dataset
 from augment import VideoRandomPerspective, VideoRandomFlip, VideoRandomContrast, VideoRandomMultiply, VideoRandomAdd, VideoRandomNoise, VideoCropAndResize, ClipZeroOne, Scale, Gray2RGB
 from dimensions import Dimensions
 
-
 def train_test(data_root: str, split_path: str):
     src_shape = Dimensions(
         batch_size=2,
