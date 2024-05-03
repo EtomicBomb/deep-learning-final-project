@@ -13,9 +13,9 @@ from dataset import get_dataset
 from augment import VideoRandomPerspective, VideoRandomFlip, VideoRandomContrast, VideoRandomMultiply, VideoRandomAdd, VideoRandomNoise, VideoCropAndResize, ClipZeroOne, Scale, Gray2RGB
 from dimensions import Dimensions
 
-def train_test(data_root: str, split_path: str, subset=None):
+def train_test(data_root: str, split_path: str, subset=None, batch_size=2):
     src_shape = Dimensions(
-        batch_size=2,
+        batch_size=batch_size,
         frame_count=32,
         height=112,
         width=224,
@@ -36,13 +36,13 @@ def train_test(data_root: str, split_path: str, subset=None):
     rng = tf.random.Generator.from_non_deterministic_state()
 
     preprocess_model = keras.Sequential([
+        VideoCropAndResize(),
         Scale(),
         Gray2RGB(),
     ])
 
     augment_preprocess_model = keras.Sequential([
         keras.Input(shape=(src_shape.example_shape), batch_size=src_shape.batch_size),
-        VideoCropAndResize(),
         #VideoRandomNoise(rng=rng), too extreme now I should tweak
         VideoRandomPerspective(rng=rng),
         VideoRandomFlip(rng=rng),
@@ -55,11 +55,12 @@ def train_test(data_root: str, split_path: str, subset=None):
     return from_split('train', augment_preprocess_model), from_split('test', preprocess_model)
 
 def demo():
-    data, _ = train_test('data/extract', 'data/split.json', subset=3)
+    _, data = train_test('data/extract', 'data/split.json', subset=None)
 
     fig, ax = plt.subplots()
     print(f"data: {data}")
     data = data.as_numpy_iterator()
+    
     data = iter((frame, label) for batch, labels in data for video, label in zip(batch, labels) for frame in video)
     image = ax.imshow(next(data)[0], cmap='gray')
     def animate(data):

@@ -57,6 +57,10 @@ def get_dataset(
     data = Dataset.sample_from_datasets(data, stop_on_empty_dataset=True, rerandomize_each_iteration=True) 
     data = data.shuffle(data.cardinality(), reshuffle_each_iteration=True)
 
+    def foo(data, label):
+        tf.print('v', tf.reduce_all(tf.equal(tf.shape(data), s.example_shape)), label)
+        return True
+
     @tf.py_function(Tout=tf.TensorSpec(shape=(s.example_shape), dtype=tf.float32))
     def fetch_segment(pts: tf.int64, path: tf.string, frame_count: tf.int64): 
         path = path.numpy().decode('utf-8')
@@ -77,8 +81,10 @@ def get_dataset(
             return tf.stack(frames)
     data = data.repeat()
     data = data.map(lambda pts, path, label: (fetch_segment(pts, path, s.frame_count), label))
+    data = data.filter(lambda data, label: tf.reduce_all(tf.equal(tf.shape(data), s.example_shape)))
+    data = data.filter(lambda data, label: tf.reduce_mean(data) > 0.1)
     data = data.map(lambda data, label: (
-        tf.ensure_shape(data, (s.example_shape)), 
+        tf.ensure_shape(data, s.example_shape), 
         tf.ensure_shape(label, ()),
     ))
     data = data.batch(s.batch_size)
