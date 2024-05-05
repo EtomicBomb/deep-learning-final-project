@@ -88,7 +88,7 @@ class VideoRandomAugmentation(PreprocessingLayer, ABC):
         w = w / tf.reduce_sum(w)
         w = tf.reshape(w, (-1, 1, 1))
         x = x + w.shape[0] - 1
-        x = self.rng.truncated_normal(shape=(1, x, 1), mean=self.smooth_mean, stddev=self.smooth_std)
+        x = tf.random.truncated_normal(shape=(1, x, 1), mean=self.smooth_mean, stddev=self.smooth_std)
         x = tf.nn.convolution(x, w)
         x = tf.reshape(x, (-1,))
         return x
@@ -101,9 +101,10 @@ class VideoRandomAugmentation(PreprocessingLayer, ABC):
         probs = self.augment_fraction if training else 0.0
         if probs == 0.0:
             return x
-        mask = self.rng.binomial(shape=(self.s.batch_size, 1, 1, 1, 1), counts=1., probs=probs)
+        mask = tf.random.normal(shape=(self.s.batch_size, 1, 1, 1, 1)) < 0.0
+#         mask = tf.random.binomial(shape=(self.s.batch_size, 1, 1, 1, 1), counts=1., probs=probs)
         x_augmented = self.operation(x, self.s, self.rng)
-        return tf.where(mask == 1, x, x_augmented)
+        return tf.where(mask, x, x_augmented)
 
 class VideoRandomNoise(VideoRandomAugmentation):
     def __init__(self, *args, **kwargs):
