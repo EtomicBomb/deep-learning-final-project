@@ -115,7 +115,7 @@ class VideoRandomNoise(VideoRandomAugmentation):
         height = tf.where(height < 3, 8.0, 0.0) + tf.where(height > 100, 1.0, 0.0)
         width = tf.reshape(tf.range(s.width), (1, 1, s.width))
         width = tf.where(width < 3, 8.0, 0.0) + tf.where(width > 200, 1.0, 0.0)
-        w = rng.normal((s.channels, s.batch_size, s.frame_count, s.height, s.width))
+        w = tf.random.normal((s.channels, s.batch_size, s.frame_count, s.height, s.width))
         w = width * height * frame_count * w
         w = tf.signal.ifft3d(tf.complex(w, w))
         w = tf.math.real(w)
