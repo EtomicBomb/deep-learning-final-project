@@ -157,7 +157,7 @@ def experiment():
     model = keras.Sequential([
         keras.Input(shape=s.example_shape, batch_size=s.batch_size),
         tf.keras.layers.Rescaling(2.0, -1.0), # [0,1] -> [-1, 1]
-        VideoMobileNet(start='input_layer_1',end='block_3_depthwise', trainable=False),
+        VideoMobileNet(start=None,end='block_3_depthwise', trainable=False),
         Video1DConvolution(32, 20),
         VideoMobileNet(start='block_3_depthwise',end='block_6_depthwise', trainable=False),
         Video1DConvolution(32, 20),
