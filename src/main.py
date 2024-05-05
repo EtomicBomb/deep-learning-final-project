@@ -113,10 +113,13 @@ def demo():
     plt.show()
 
 class VideoMobileNet(keras.layers.Layer):
-    def __init__(self, *args, start=1, end=None, trainable=True, **kwargs):
+    def __init__(self, *args, start=None, end=None, trainable=True, **kwargs):
         super().__init__(*args, **kwargs)
         model = keras.applications.MobileNetV2(weights='imagenet', input_shape=(224, 224, 3))
-        start = model.get_layer(start)
+        if start is not None:
+            start = model.get_layer(start)
+        else:
+            start = model.layers[0]
         end = model.get_layer(end)
         model = keras.Model(inputs=start.output,outputs=end.output)
         for layer in model.layers:
