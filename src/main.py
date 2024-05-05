@@ -186,7 +186,7 @@ def experiment():
     )
 
     model.compile(
-        optimizer=keras.optimizers.AdamW(
+        optimizer=keras.optimizers.Adam(
           learning_rate=1e-7
         ),
         loss=keras.losses.SparseCategoricalCrossentropy(from_logits=False),
