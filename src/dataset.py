@@ -26,6 +26,7 @@ def index_videos(
     paths: Iterable[str], 
     label: str, 
     frame_count: int,
+    extract_root: str,
 ) -> tuple[Dataset]:
     """
     returns a dataset over the presentation timestamps in all the source videos
@@ -35,33 +36,37 @@ def index_videos(
     for path in paths:
         for path in path.glob(f'{label}*.mp4'):
             ptss = index_video(path, frame_count)
-            ptss = ptss.map(lambda pts: (pts, str(path)))
+            ptss = ptss.map(lambda pts: (pts, str(path.relative_to(extract_root))))
             ret += [ptss]
     return reduce(Dataset.concatenate, ret)
 
+def get_index(
+    extract_root: str,
+    paths: Iterable[str],
+    frame_count: int,
+) -> Dataset:
+    """
+    returns a dataset over pairs of presentation timestamp and paths, relative to data/extract
+    """
+    paths = [Path(extract_root, path) for path in paths]
+    data = [
+        index_videos(paths, '0', frame_count, extract_root).map(lambda pts, path: (pts, path, 0)),
+        index_videos(paths, '5', frame_count, extract_root).map(lambda pts, path: (pts, path, 1)),
+        index_videos(paths, '10', frame_count, extract_root).map(lambda pts, path: (pts, path, 2)),
+    ]
+    data = Dataset.sample_from_datasets(data, stop_on_empty_dataset=True, rerandomize_each_iteration=True)
+    data = data.cache()
+    return data
+
 def get_dataset(
-    data_root: str,
-    paths: Iterable[str], 
+    data: Dataset,
     s: Dimensions,
 ) -> Dataset:
     """
-    @param data_root the path ending in data/extract
+    @param data_root the path ending in data/
     @param paths paths relative to data_root
     """
-    paths = [Path(data_root, path) for path in paths]
-    data = [
-        index_videos(paths, '0', s.frame_count).map(lambda pts, path: (pts, path, 0)),
-        index_videos(paths, '5', s.frame_count).map(lambda pts, path: (pts, path, 1)),
-        index_videos(paths, '10', s.frame_count).map(lambda pts, path: (pts, path, 2)),
-    ]
-    data = Dataset.sample_from_datasets(data, stop_on_empty_dataset=True, rerandomize_each_iteration=True) 
-    data = data.shuffle(data.cardinality(), reshuffle_each_iteration=True)
-
-    def foo(data, label):
-        tf.print('v', tf.reduce_all(tf.equal(tf.shape(data), s.example_shape)), label)
-        return True
-
-    @tf.py_function(Tout=tf.TensorSpec(shape=(s.example_shape), dtype=tf.float32))
+    @tf.py_function(Tout=tf.TensorSpec(shape=s.example_shape, dtype=tf.float32))
     def fetch_segment(pts: tf.int64, path: tf.string, frame_count: tf.int64): 
         path = path.numpy().decode('utf-8')
         pts = int(pts.numpy())
@@ -79,7 +84,6 @@ def get_dataset(
                     frame = np.float32(frame) / 255.0
                     frames.append(tf.convert_to_tensor(frame))
             return tf.stack(frames)
-    data = data.repeat()
     data = data.map(lambda pts, path, label: (fetch_segment(pts, path, s.frame_count), label))
     data = data.filter(lambda data, label: tf.reduce_all(tf.equal(tf.shape(data), s.example_shape)))
     data = data.filter(lambda data, label: tf.reduce_mean(data) > 0.1)
