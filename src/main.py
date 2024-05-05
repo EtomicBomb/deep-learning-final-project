@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 
+import time
 import tensorflow as tf
 from tensorflow import keras
 from pathlib import Path
@@ -188,6 +189,11 @@ def experiment():
         frame_count=32,
     )
 
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
+        filepath=f'data/checkpoints/{timestamp}{{epoch}}.keras',
+    )
+
     model.compile(
         optimizer=keras.optimizers.Adam(
           learning_rate=1e-7
@@ -197,8 +203,9 @@ def experiment():
     )
     history = model.fit(
         train_data,
-        steps_per_epoch=20,
-        epochs=30, 
+        steps_per_epoch=300,
+        epochs=10, 
+        callbacks=[model_checkpoint_callback],
     )
     print(history)
 
