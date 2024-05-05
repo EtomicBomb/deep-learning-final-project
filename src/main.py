@@ -1,11 +1,9 @@
 #!/usr/bin/env python
 
-from matplotlib.animation import FuncAnimation
 import tensorflow as tf
 from tensorflow import keras
 from pathlib import Path
 import json
-import matplotlib.pyplot as plt
 from argparse import ArgumentParser
 import time
 from tensorflow.data import Dataset
@@ -90,6 +88,8 @@ def index():
     Dataset.save(data, f'data/test{frame_count}.dataset')
 
 def demo():
+    from matplotlib.animation import FuncAnimation
+    import matplotlib.pyplot as plt
     data = get_data(
         mode='train',
         extract_root='data/extract/',
