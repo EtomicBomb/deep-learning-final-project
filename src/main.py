@@ -213,7 +213,7 @@ def experiment(exclude: set[str], run_id: str, learning_rate: float, filename: s
     model.summary()
 
 def evaluate(exclude: set[str], run_id: str, learning_rate: float, filename: str):
-    validation_steps = 50
+    validation_steps = 1000
     test_data = get_data(
         mode='test',
         extract_root='data/extract/',
@@ -230,7 +230,7 @@ def evaluate(exclude: set[str], run_id: str, learning_rate: float, filename: str
         metrics=[keras.metrics.SparseCategoricalAccuracy()],
     )
     result = model.evaluate(test_data, steps=validation_steps, return_dict=True)
-    print(result)
+    Path(filename).with_suffix('.json').write_text(json.dumps(result))
 
 if __name__ == '__main__':
     modes = dict(demo=demo, index=index, experiment=experiment, evaluate=evaluate)
