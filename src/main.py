@@ -31,7 +31,7 @@ def get_data(
         channels=1,
     )
     data = Dataset.load(str(Path(data_root, f'{mode}{frame_count}.dataset')))
-    data = data.shuffle(data.cardinality(), reshuffle_each_iteration=True)
+    data = data.shuffle(data.cardinality(), reshuffle_each_iteration=True, seed=42)
     if mode == 'test':
         data = data.take(validation_steps)
     data = data.repeat()
@@ -87,7 +87,7 @@ def train_test(extract_root: str, data_root: str, batch_size=2, frame_count=32, 
 
     return train, test
 
-def index(exclude: set[str], run_id: str, learning_rate: float):
+def index(exclude: set[str], run_id: str, learning_rate: float, filename: str):
     frame_count = 32
     data_split = json.loads(Path('data/split.json').read_text())
     data = get_index('data/extract', paths=data_split['train'], frame_count=32)
@@ -95,7 +95,7 @@ def index(exclude: set[str], run_id: str, learning_rate: float):
     data = get_index('data/extract', paths=data_split['test'], frame_count=32)
     Dataset.save(data, f'data/test{frame_count}.dataset')
 
-def demo(exclude: set[str], run_id: str, learning_rate: float):
+def demo(exclude: set[str], run_id: str, learning_rate: float, filename: str):
     from matplotlib.animation import FuncAnimation
     import matplotlib.pyplot as plt
     data = get_data(
@@ -122,6 +122,7 @@ def demo(exclude: set[str], run_id: str, learning_rate: float):
     ani = FuncAnimation(fig, animate, data, cache_frame_data=False, blit=True, interval=1)
     plt.show()
 
+@keras.utils.register_keras_serializable()
 class VideoMobileNet(keras.layers.Layer):
     def __init__(self, *args, start=None, end=None, trainable=True, **kwargs):
         super().__init__(*args, **kwargs)
@@ -140,6 +141,7 @@ class VideoMobileNet(keras.layers.Layer):
         x = tf.reshape(x, (batch_size, frame_count, height, width, channels))
         return x
 
+@keras.utils.register_keras_serializable()
 class Video1DConvolution(keras.layers.Layer):
     def __init__(self, filters, kernel_size, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -151,7 +153,7 @@ class Video1DConvolution(keras.layers.Layer):
         x = tf.reshape(x, (batch_size, x.shape[1], height, width, channels))
         return x
 
-def experiment(exclude: set[str], run_id: str, learning_rate: float):
+def model_two_plus_one():
     s = Dimensions(
         batch_size=4,
         frame_count=32,
@@ -160,7 +162,7 @@ def experiment(exclude: set[str], run_id: str, learning_rate: float):
         channels=3,
     )
 
-    model = keras.Sequential([
+    return keras.Sequential([
         keras.Input(shape=s.example_shape, batch_size=s.batch_size),
         tf.keras.layers.Rescaling(2.0, -1.0), # [0,1] -> [-1, 1]
         VideoMobileNet(start=None,end='block_3_depthwise', trainable=False),
@@ -178,22 +180,15 @@ def experiment(exclude: set[str], run_id: str, learning_rate: float):
         keras.layers.Dense(3, activation='sigmoid'),
     ])
 
+def experiment(exclude: set[str], run_id: str, learning_rate: float, filename: str):
+    model = model_two_plus_one()
+
     train_data = get_data(
         mode='train',
         extract_root='data/extract/',
         data_root='data',
         batch_size=3,
         frame_count=32,
-        exclude=exclude,
-    )
-
-    test_data = get_data(
-        mode='test',
-        extract_root='data/extract/',
-        data_root='data',
-        batch_size=3,
-        frame_count=32,
-        validation_steps=10,
         exclude=exclude,
     )
 
@@ -217,8 +212,28 @@ def experiment(exclude: set[str], run_id: str, learning_rate: float):
 
     model.summary()
 
+def evaluate(exclude: set[str], run_id: str, learning_rate: float, filename: str):
+    validation_steps = 50
+    test_data = get_data(
+        mode='test',
+        extract_root='data/extract/',
+        data_root='data',
+        batch_size=3,
+        frame_count=32,
+        validation_steps=validation_steps,
+        exclude=exclude,
+    )
+    model = model_two_plus_one()
+    model.load_weights(filename)
+    model.compile(
+        loss=keras.losses.SparseCategoricalCrossentropy(from_logits=False),
+        metrics=[keras.metrics.SparseCategoricalAccuracy()],
+    )
+    result = model.evaluate(test_data, steps=validation_steps, return_dict=True)
+    print(result)
+
 if __name__ == '__main__':
-    modes = dict(demo=demo, index=index, experiment=experiment)
+    modes = dict(demo=demo, index=index, experiment=experiment, evaluate=evaluate)
     parser = ArgumentParser(
         prog='drowsiness classifier',
         description='sees if someone is drowsy',
@@ -226,11 +241,13 @@ if __name__ == '__main__':
     parser.add_argument('-m', '--mode', choices=list(modes), default=next(iter(modes)))
     parser.add_argument('--exclude', nargs='*', help='exclude augmentations')
     parser.add_argument('--run-id', default='run', help='the name of checkpoints')
-    parser.add_argument('--learning-rate', default=1e-7, type=float, help='the name of checkpoints')
+    parser.add_argument('--learning-rate', default=1e-7, type=float, help='learning rate')
+    parser.add_argument('--filename', default='', help='filename for evaluation')
     args = parser.parse_args()
     print('received arguments', args)
     modes[args.mode](
         set(args.exclude) if args.exclude is not None else set(),
         run_id=args.run_id,
         learning_rate=args.learning_rate,
+        filename=args.filename,
     )
