@@ -20,6 +20,7 @@ def get_data(
     data_root: str, 
     batch_size: int,
     frame_count: int,
+    validation_steps: int = None,
 ):
     src_shape = Dimensions(
         batch_size=batch_size,
@@ -30,8 +31,9 @@ def get_data(
     )
     data = Dataset.load(str(Path(data_root, f'{mode}{frame_count}.dataset')))
     data = data.shuffle(data.cardinality(), reshuffle_each_iteration=True)
-    if mode == 'train':
-        data = data.repeat()
+    if mode == 'test':
+        data = data.take(validation_steps)
+    data = data.repeat()
     data = data.map(lambda pts, path, label: (pts, tf.strings.join([extract_root, path]), label))
     data = get_dataset(data, s=src_shape)
 
@@ -62,13 +64,14 @@ def get_data(
     data = data.prefetch(tf.data.AUTOTUNE)
     return data
 
-def train_test(extract_root: str, data_root: str, batch_size=2, frame_count=32):
+def train_test(extract_root: str, data_root: str, batch_size=2, frame_count=32, validation_steps=20):
     train = get_data(
         mode='train',
         extract_root=extract_root,
         data_root=data_root,
         batch_size=batch_size,
         frame_count=frame_count,
+        validation_steps=validation_steps,
     )
     test = get_data(
         mode='test',
@@ -76,6 +79,7 @@ def train_test(extract_root: str, data_root: str, batch_size=2, frame_count=32):
         data_root=data_root,
         batch_size=batch_size,
         frame_count=frame_count,
+        validation_steps=validation_steps,
     )
 
     return train, test
@@ -92,11 +96,12 @@ def demo():
     from matplotlib.animation import FuncAnimation
     import matplotlib.pyplot as plt
     data = get_data(
-        mode='train',
+        mode='test',
         extract_root='data/extract/',
         data_root='data',
         batch_size=3,
         frame_count=32,
+        validation_steps=20,
     )
 
     fig, ax = plt.subplots()
@@ -189,9 +194,9 @@ def experiment():
         frame_count=32,
     )
 
-    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    timestamp = time.strftime("%Y%m%d")
     model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
-        filepath=f'data/checkpoints/{timestamp}{{epoch}}.keras',
+        filepath=f'data/checkpoints/{timestamp}-{{epoch}}.keras',
     )
 
     model.compile(
@@ -204,7 +209,7 @@ def experiment():
     history = model.fit(
         train_data,
         steps_per_epoch=300,
-        epochs=10, 
+        epochs=30, 
         callbacks=[model_checkpoint_callback],
     )
     print(history)
