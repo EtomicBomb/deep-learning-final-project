@@ -76,7 +76,10 @@ def get_dataset(
             stream = iter(container.decode(stream))
             frames = []
             while len(frames) < frame_count:
-                frame = next(stream)
+                try:
+                    frame = next(stream)
+                except StopIteration:
+                    return tf.zeros(s.example_shape)
                 if frame.pts >= pts:
                     frame = frame.to_ndarray()
                     frame = frame[:s.height] # XXX: why?
