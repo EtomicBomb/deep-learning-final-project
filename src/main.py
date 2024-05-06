@@ -209,7 +209,7 @@ def experiment(exclude: set[str], run_id: str, learning_rate: float):
     )
     history = model.fit(
         train_data,
-        steps_per_epoch=300,
+        steps_per_epoch=2000,
         epochs=10, 
         callbacks=[model_checkpoint_callback],
     )
