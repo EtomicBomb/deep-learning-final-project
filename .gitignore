@@ -4,6 +4,7 @@
 /data/init
 /data/positions
 /data/extract
+/data/checkpoints
 *.h5
 *.keras
 
