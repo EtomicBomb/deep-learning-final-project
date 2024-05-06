@@ -1,229 +1,253 @@
 #!/usr/bin/env python
 
-from matplotlib import animation, widgets
+import time
 import tensorflow as tf
 from tensorflow import keras
-from tensorflow.data import Dataset
-import av
-from typing import Iterable
-from numpy.lib.stride_tricks import sliding_window_view
-from itertools import islice
 from pathlib import Path
 import json
-from functools import reduce
-import numpy as np
-import matplotlib.pyplot as plt
 from argparse import ArgumentParser
+import time
+from tensorflow.data import Dataset
+from typing import Literal
 
-def file_ptss(path: Path, frames_per_example: int) -> Dataset:
-    with av.open(str(path)) as container:
-        stream, = container.streams
-        stream = (frame.pts for frame in container.demux(stream) if frame.pts is not None)
-        stream = islice(stream, 0, None, frames_per_example)
-        stream = np.fromiter(stream, np.int64)
-        stream = stream[:-1]
-        return Dataset.from_tensor_slices(stream)
+from dataset import get_dataset, get_index
+from augment import VideoRandomPerspective, VideoRandomFlip, VideoRandomContrast, VideoRandomMultiply, VideoRandomAdd, VideoRandomNoise, VideoCropAndResize, ClipZeroOne, Scale, Gray2RGB
+from dimensions import Dimensions
 
-def more_data(
-    paths: Iterable[str], 
-    label: int, 
-    frames_per_example: int,
-) -> Dataset:
-    """
-    returns: Dataset[pts: int32, path: str, label: int]
-    """
-    ret = []
-    for path in paths:
-        path, = Path('data/extract', path).glob(f'{label}*.mp4')
-        ptss = file_ptss(path, frames_per_example)
-        ptss = ptss.map(lambda pts: (pts, str(path)))
-        ret += [ptss]
-    ret = reduce(Dataset.concatenate, ret)
-    ret = ret.map(lambda pts, path: (pts, path, label))
-    return ret
-
-def get_dataset(
-    paths: Iterable[str], 
-    frames_per_example: int,
-    shuffle_batch: int,
-    video_height: int,
-    video_width: int,
-) -> Dataset:
-    '''
-    ADD DOCSTRINGS PLEASEEEE
-    '''
-    data = [
-        more_data(paths, 0, frames_per_example),
-        more_data(paths, 5, frames_per_example),
-        more_data(paths, 10, frames_per_example),
-    ]
-    data = Dataset.sample_from_datasets(data, rerandomize_each_iteration=True) 
-    data = data.shuffle(data.cardinality(), reshuffle_each_iteration=True)
+def get_data(
+    mode: Literal['train', 'test'],
+    extract_root: str, 
+    data_root: str, 
+    batch_size: int,
+    frame_count: int,
+    validation_steps: int = None,
+    exclude: int = set(),
+):
+    src_shape = Dimensions(
+        batch_size=batch_size,
+        frame_count=frame_count,
+        height=112,
+        width=224,
+        channels=1,
+    )
+    data = Dataset.load(str(Path(data_root, f'{mode}{frame_count}.dataset')))
+    data = data.shuffle(data.cardinality(), reshuffle_each_iteration=True, seed=42)
+    if mode == 'test':
+        data = data.take(validation_steps)
     data = data.repeat()
-    data = data.shuffle(shuffle_batch, reshuffle_each_iteration=True)
+    data = data.map(lambda pts, path, label: (pts, tf.strings.join([extract_root, path]), label))
+    data = get_dataset(data, s=src_shape)
 
-    @tf.py_function(Tout=tf.TensorSpec(shape=(frames_per_example, video_height, video_width, 1), dtype=tf.float32))
-    def fetch_segment(pts: tf.int64, path: tf.string, frames_per_example: tf.int64): 
-        path = path.numpy().decode('utf-8')
-        pts = int(pts.numpy())
-        with av.open(path) as container:
-            stream, = container.streams
-            container.seek(pts, backward=True, any_frame=False, stream=stream)
-            stream = iter(container.decode(stream))
-            frames = []
-            while len(frames) < frames_per_example:
-                frame = next(stream)
-                if frame.pts >= pts:
-                    frame = frame.to_ndarray()
-                    frame = frame[:video_height, :video_width] # XXX: why?
-                    frame = np.expand_dims(frame, -1)
-                    frame = np.float32(frame) / 255.0
-                    frames.append(tf.convert_to_tensor(frame))
-            return tf.stack(frames)
-    data = data.map(lambda pts, path, label: (fetch_segment(pts, path, frames_per_example), label))
+    model = keras.Sequential([
+        keras.Input(shape=src_shape.example_shape, batch_size=src_shape.batch_size),
+        VideoCropAndResize(),
+        Scale(),
+        Gray2RGB(),
+    ])
+
+    if mode == 'train':
+        def maybe(tag: str, value: any):
+            return [value] if tag not in exclude else []
+        rng = tf.random.Generator.from_non_deterministic_state()
+        model = keras.Sequential([
+            keras.Input(shape=src_shape.example_shape, batch_size=src_shape.batch_size),
+            *maybe('noise', VideoRandomNoise(rng=rng)),
+            *maybe('perspective', VideoRandomPerspective(rng=rng)),
+            VideoRandomFlip(rng=rng),
+            *maybe('contrast', VideoRandomContrast(rng=rng)),
+            *maybe('madd', VideoRandomMultiply(rng=rng)),
+            *maybe('madd', VideoRandomAdd(rng=rng)),
+            ClipZeroOne(),
+            model,
+        ])
+    data = data.map(
+        lambda x, y: (model(x), y),
+        num_parallel_calls=tf.data.AUTOTUNE,
+    )
+    data = data.prefetch(tf.data.AUTOTUNE)
     return data
 
-class VideoRandomOperation(keras.layers.Layer):
-    def __init__(self, operation, rng=None):
-        super().__init__(trainable=False)
-        if rng is None:
-            rng = tf.random.Generator.from_non_deterministic_state()
-        self.rng = rng
-        self.operation = operation
-    def call(self, x, training=True):
-        return self.operation(x, self.rng) if training else x
-
-def random_flip(x, rng):
-    batch_size, frame_count, height, width, channels = x.shape
-    mask = rng.binomial(shape=(batch_size,), counts=1., probs=0.5)
-    mask = mask == 1
-    mask = tf.reshape(mask, (batch_size, 1, 1, 1, 1))
-    return tf.where(mask, x, tf.reverse(x, axis=(3,)))
-
-def smooth_exponential(x, w, base, mean, stddev, rng):
-    """
-    x: length 
-    w: size of the window (convolution window has length 2 * w - 1)
-    base: larger means sharper exponential
-    """
-    w = base ** tf.range(w, dtype=tf.float32)
-    w = tf.concat((w[:-1], tf.reverse(w, axis=(0,))), axis=0)
-    w = w / tf.reduce_sum(w)
-    w = tf.reshape(w, (-1, 1, 1))
-    x = x + w.shape[0] - 1
-    x = rng.truncated_normal(shape=(1, x, 1), mean=mean, stddev=stddev)
-    x = tf.nn.convolution(x, w)
-    x = tf.reshape(x, (-1,))
-    return x
-
-def random_contrast(x, rng):
-    batch_size, frame_count, height, width, channels = x.shape
-    mask = smooth_exponential(x=batch_size * frame_count, w=30, base=1.1, mean=1., stddev=1.5, rng=rng)
-    mask = tf.reshape(mask, (batch_size, frame_count, 1, 1, 1))
-    x = (x - 0.5) * mask + 0.5
-    return tf.clip_by_value(x, 0.0, 1.0)
-
-def random_brightness(x, rng):
-    batch_size, frame_count, height, width, channels = x.shape
-    mask = smooth_exponential(x=batch_size * frame_count, w=30, base=1.1, mean=1., stddev=1.5, rng=rng)
-    mask = tf.reshape(mask, (batch_size, frame_count, 1, 1, 1))
-    x = x * mask
-    return tf.clip_by_value(x, 0.0, 1.0)
-
-def video_crop_and_resize(x, rng):
-    batch_size, frame_count, height, width, channels = x.shape
-    length = batch_size * frame_count
-    x1 = smooth_exponential(x=length, w=30, base=1.1, mean=0., stddev=0.2, rng=rng)
-    x2 = smooth_exponential(x=length, w=30, base=1.1, mean=1., stddev=0.2, rng=rng)
-    y1 = smooth_exponential(x=length, w=30, base=1.1, mean=0., stddev=0.2, rng=rng)
-    y2 = smooth_exponential(x=length, w=30, base=1.1, mean=1., stddev=0.2, rng=rng)
-    boxes = tf.transpose([y1, x1, y2, x2])
-    boxes = tf.clip_by_value(boxes, 0.0, 1.0)
-    x = tf.reshape(x, (length, height, width, channels))
-    x = tf.image.crop_and_resize(
-        x, 
-        boxes=boxes,
-        box_indices=tf.range(batch_size * frame_count),
-        crop_size=(height, width))
-    return tf.reshape(x, (batch_size, frame_count, height, width, channels))
-
-def augmentation_model(batch_size, frames_per_example, video_height, video_width, channels):
-    x = inputs = keras.Input(shape=(frames_per_example, video_height, video_width, channels), batch_size=batch_size)
-    x = VideoRandomOperation(random_flip)(x)
-    x = VideoRandomOperation(random_contrast)(x)
-    x = VideoRandomOperation(random_brightness)(x)
-    x = VideoRandomOperation(video_crop_and_resize)(x)
-    return keras.Model(inputs=inputs, outputs=x)
-
-def train():
-    from model import Model 
-    batch_size = 4
-    frames_per_example = 30 * 3
-    video_height = 112
-    video_width = 224
-    model = Model(
+def train_test(extract_root: str, data_root: str, batch_size=2, frame_count=32, validation_steps=20):
+    train = get_data(
+        mode='train',
+        extract_root=extract_root,
+        data_root=data_root,
         batch_size=batch_size,
-        frames_per_example=frames_per_example,
-        video_height=video_height,
-        video_width=video_width,
-        channels=1,
-        num_classes=3,
-    ) # classifying 3 levels of drowsiness: low, med, high
-    model.compile(
-        optimizer=keras.optimizers.Adam(learning_rate=1e-3),
-        loss='binary_cross_entropy',
-        metrics=['accuracy'],
+        frame_count=frame_count,
+        validation_steps=validation_steps,
+    )
+    test = get_data(
+        mode='test',
+        extract_root=extract_root,
+        data_root=data_root,
+        batch_size=batch_size,
+        frame_count=frame_count,
+        validation_steps=validation_steps,
     )
 
-    splits = json.loads(Path('data/split.json').read_text())
-    dataset = splits['train'][:1]
-    dataset = get_dataset(
-        dataset, 
-        frames_per_example, 
-        shuffle_batch=1000, 
-        video_height=video_height, 
-        video_width=video_width,
-    ).prefetch(4).batch(batch_size)
-    model.fit(dataset, steps_per_epoch=10, epochs=10)
+    return train, test
 
-def evaluate():
-    assert False, 'TODO'
-    test_loss, test_acc = model.evaluate(dataset)
+def index(exclude: set[str], run_id: str, learning_rate: float, filename: str):
+    frame_count = 32
+    data_split = json.loads(Path('data/split.json').read_text())
+    data = get_index('data/extract', paths=data_split['train'], frame_count=32)
+    Dataset.save(data, f'data/train{frame_count}.dataset')
+    data = get_index('data/extract', paths=data_split['test'], frame_count=32)
+    Dataset.save(data, f'data/test{frame_count}.dataset')
 
-def demo():
-    frames_per_example = 30 * 3
-    video_height = 112
-    video_width = 224
-    splits = json.loads(Path('data/split.json').read_text())
-    data = splits['train'][:1] # select only one participant so we can see changes easily
-    data = get_dataset(
-        data,
-        frames_per_example, 
-        shuffle_batch=1000, 
-        video_height=video_height, 
-        video_width=video_width,
-    ).prefetch(4)
-
-    augment = augmentation_model(1, frames_per_example, video_height, video_width, channels=1)
+def demo(exclude: set[str], run_id: str, learning_rate: float, filename: str):
+    from matplotlib.animation import FuncAnimation
+    import matplotlib.pyplot as plt
+    data = get_data(
+        mode='train',
+        extract_root='data/extract/',
+        data_root='data',
+        batch_size=3,
+        frame_count=32,
+        validation_steps=20,
+        exclude=exclude,
+    )
 
     fig, ax = plt.subplots()
-    data = iter((x, y) for xs, y in data for x in tf.squeeze(augment(tf.expand_dims(xs, 0)), 0))
+    print(f"data: {data}")
+    data = data.as_numpy_iterator()
+    
+    data = iter((frame, label) for batch, labels in data for video, label in zip(batch, labels) for frame in video)
     image = ax.imshow(next(data)[0], cmap='gray')
     def animate(data):
         x, y = data
-        image.set_data(x.numpy())
-        print(y.numpy())
+        image.set_data(x)
+        print(y)
         return [image]
-    ani = animation.FuncAnimation(fig, animate, data, cache_frame_data=False, blit=True, interval=1)
+    ani = FuncAnimation(fig, animate, data, cache_frame_data=False, blit=True, interval=1)
     plt.show()
 
+@keras.utils.register_keras_serializable()
+class VideoMobileNet(keras.layers.Layer):
+    def __init__(self, *args, start=None, end=None, trainable=True, **kwargs):
+        super().__init__(*args, **kwargs)
+        model = keras.applications.MobileNetV2(weights='imagenet', input_shape=(224, 224, 3))
+        start = model.get_layer(start) if start is not None else model.layers[0]
+        end = model.get_layer(end)
+        model = keras.Model(inputs=start.output,outputs=end.output)
+        for layer in model.layers:
+           layer.trainable = trainable
+        self.model = model
+    def call(self, x):
+        batch_size, frame_count, height, width, channels = x.shape
+        x = tf.reshape(x, (batch_size*frame_count, height, width, channels))
+        x = self.model(x)
+        _, height, width, channels = x.shape
+        x = tf.reshape(x, (batch_size, frame_count, height, width, channels))
+        return x
+
+@keras.utils.register_keras_serializable()
+class Video1DConvolution(keras.layers.Layer):
+    def __init__(self, filters, kernel_size, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.m = keras.layers.Conv1D(filters, kernel_size, padding='same', data_format='channels_first')
+    def call(self, x):
+        batch_size, frame_count, height, width, channels = x.shape
+        x = tf.reshape(x, (batch_size, frame_count, height * width * channels))
+        x = self.m(x)
+        x = tf.reshape(x, (batch_size, x.shape[1], height, width, channels))
+        return x
+
+def model_two_plus_one():
+    s = Dimensions(
+        batch_size=4,
+        frame_count=32,
+        height=224,
+        width=224,
+        channels=3,
+    )
+
+    return keras.Sequential([
+        keras.Input(shape=s.example_shape, batch_size=s.batch_size),
+        tf.keras.layers.Rescaling(2.0, -1.0), # [0,1] -> [-1, 1]
+        VideoMobileNet(start=None,end='block_3_depthwise', trainable=False),
+        # Video1DConvolution(32, 20),
+        VideoMobileNet(start='block_3_depthwise',end='block_6_depthwise', trainable=False),
+        # Video1DConvolution(32, 20),
+        VideoMobileNet(start='block_6_depthwise',end='block_13_depthwise', trainable=False),
+        Video1DConvolution(32, 20),
+        VideoMobileNet(start='block_13_depthwise',end='block_16_expand', trainable=True),
+        Video1DConvolution(32, 20),
+        VideoMobileNet(start='block_16_expand',end='out_relu', trainable=True),
+        Video1DConvolution(32, 20),
+        keras.layers.Conv3D(1, (10, 3, 3), strides=(3, 3, 3), activation='relu'),
+        keras.layers.Flatten(),
+        keras.layers.Dense(3, activation='sigmoid'),
+    ])
+
+def experiment(exclude: set[str], run_id: str, learning_rate: float, filename: str):
+    model = model_two_plus_one()
+
+    train_data = get_data(
+        mode='train',
+        extract_root='data/extract/',
+        data_root='data',
+        batch_size=3,
+        frame_count=32,
+        exclude=exclude,
+    )
+
+    model.compile(
+        optimizer=keras.optimizers.Adam(learning_rate=learning_rate),
+        loss=keras.losses.SparseCategoricalCrossentropy(from_logits=False),
+        metrics=[keras.metrics.SparseCategoricalAccuracy()],
+    )
+
+    timestamp = time.strftime("%Y-%m-%d-%H-%M-%S")
+    model_checkpoint_callback = keras.callbacks.ModelCheckpoint(
+        filepath=f'data/checkpoints/{run_id}-{timestamp}-{{epoch:3d}}.keras',
+    )
+    history = model.fit(
+        train_data,
+        steps_per_epoch=2000,
+        epochs=10, 
+        callbacks=[model_checkpoint_callback],
+    )
+    print(history)
+
+    model.summary()
+
+def evaluate(exclude: set[str], run_id: str, learning_rate: float, filename: str):
+    validation_steps = 1000
+    test_data = get_data(
+        mode='test',
+        extract_root='data/extract/',
+        data_root='data',
+        batch_size=3,
+        frame_count=32,
+        validation_steps=validation_steps,
+        exclude=exclude,
+    )
+    model = model_two_plus_one()
+    model.load_weights(filename)
+    model.compile(
+        loss=keras.losses.SparseCategoricalCrossentropy(from_logits=False),
+        metrics=[keras.metrics.SparseCategoricalAccuracy()],
+    )
+    result = model.evaluate(test_data, steps=validation_steps, return_dict=True)
+    Path(filename).with_suffix('.json').write_text(json.dumps(result))
+
 if __name__ == '__main__':
-    modes = dict(demo=demo, train=train, evaluate=evaluate)
+    modes = dict(demo=demo, index=index, experiment=experiment, evaluate=evaluate)
     parser = ArgumentParser(
         prog='drowsiness classifier',
         description='sees if someone is drowsy',
-        epilog='text at the bottom of help')
+    )
     parser.add_argument('-m', '--mode', choices=list(modes), default=next(iter(modes)))
+    parser.add_argument('--exclude', nargs='*', help='exclude augmentations')
+    parser.add_argument('--run-id', default='run', help='the name of checkpoints')
+    parser.add_argument('--learning-rate', default=1e-7, type=float, help='learning rate')
+    parser.add_argument('--filename', default='', help='filename for evaluation')
     args = parser.parse_args()
-
-    modes[args.mode]()
+    print('received arguments', args)
+    modes[args.mode](
+        set(args.exclude) if args.exclude is not None else set(),
+        run_id=args.run_id,
+        learning_rate=args.learning_rate,
+        filename=args.filename,
+    )

@@ -1,6 +1,8 @@
 scikit-image
 tensorflow
-# dlib
 numpy
 matplotlib
 av
+keras_cv
+# dlib
+keras_cv
