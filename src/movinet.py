@@ -22,7 +22,7 @@ from official.projects.movinet.modeling import movinet
 from official.projects.movinet.modeling import movinet_model
 
 from main import get_data
-import tensorflow as tf
+# import tensorflow as tf
 
 validation_steps = 20
 
