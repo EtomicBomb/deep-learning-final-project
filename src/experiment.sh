@@ -11,6 +11,6 @@
 
 module purge
 unset LD_LIBRARY_PATH
-srun apptainer exec --nv /oscar/runtime/software/external/ngc-containers/tensorflow.d/x86_64.d/tensorflow-24.03-tf2-py3.simg python3 src/main.py $@
+srun apptainer exec --nv /oscar/runtime/software/external/ngc-containers/tensorflow.d/x86_64.d/tensorflow-24.03-tf2-py3.simg python3 src/main.py "$@"
 
 # srun src/experiment.sh -- --mode experiment --run-id hello --exclude noise --learning-rate 1e-7
