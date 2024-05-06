@@ -16,15 +16,15 @@ validation_steps = 20
 with tf.device('/CPU:0'):
     train_data = get_data(
         mode='train',
-        extract_root='/content/drive/MyDrive/deep-learning-final-project/data-2024-03-25/extract/',
-        data_root='/content/deep-learning-final-project/data',
+        extract_root='data/extract/',
+        data_root='data',
         batch_size=8,
         frame_count=15,
     )
     test_data = get_data(
         mode='test',
-        extract_root='/content/drive/MyDrive/deep-learning-final-project/data-2024-03-25/extract/',
-        data_root='/content/deep-learning-final-project/data',
+        extract_root='data/extract/',
+        data_root='data',
         batch_size=8,
         frame_count=15,
         validation_steps=validation_steps,
