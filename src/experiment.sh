@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --nodes=2          
+#SBATCH --nodes=1          
 #SBATCH -p gpu --gres=gpu:1
 #SBATCH --ntasks-per-node=1
 #SBATCH --cpus-per-task=1  
