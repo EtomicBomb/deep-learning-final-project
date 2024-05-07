@@ -178,7 +178,7 @@ drowsy_model.compile(loss = keras.losses.SparseCategoricalCrossentropy(from_logi
 history = drowsy_model.fit(
   train_data,
   validation_data=test_data,
-  steps_per_epoch=3,#len(train_data) // batch_size,  analogous to window size? - tiff
+  steps_per_epoch=400,#len(train_data) // batch_size,  analogous to window size? - tiff
   validation_steps=validation_steps,
   epochs=10, # change this
 )
