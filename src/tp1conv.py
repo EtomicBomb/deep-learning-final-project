@@ -19,14 +19,14 @@ with tf.device('/CPU:0'):
         extract_root='data/extract/',
         data_root='data',
         batch_size=8,
-        frame_count=15,
+        frame_count=32,
     )
     test_data = get_data(
         mode='test',
         extract_root='data/extract/',
         data_root='data',
         batch_size=8,
-        frame_count=15,
+        frame_count=32,
         validation_steps=validation_steps,
     )
 
@@ -178,7 +178,7 @@ drowsy_model.compile(loss = keras.losses.SparseCategoricalCrossentropy(from_logi
 history = drowsy_model.fit(
   train_data,
   validation_data=test_data,
-  steps_per_epoch=400,#len(train_data) // batch_size,  analogous to window size? - tiff
+  steps_per_epoch=300,#len(train_data) // batch_size,  analogous to window size? - tiff
   validation_steps=validation_steps,
   epochs=10, # change this
 )
