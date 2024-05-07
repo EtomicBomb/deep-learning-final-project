@@ -182,6 +182,8 @@ def model_two_plus_one():
 
 def experiment(exclude: set[str], run_id: str, learning_rate: float, filename: str):
     model = model_two_plus_one()
+    if filename:
+        model.load_weights(filename)
 
     train_data = get_data(
         mode='train',
