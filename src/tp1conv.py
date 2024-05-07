@@ -138,7 +138,7 @@ class ResizeVideo(keras.layers.Layer):
     return videos
   
 
-input_shape = (2, 32, HEIGHT, WIDTH, 3)
+input_shape = (8, 15, HEIGHT, WIDTH, 3)
 input = layers.Input(shape=(input_shape[1:]))
 x = input
 
