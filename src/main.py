@@ -90,9 +90,9 @@ def train_test(extract_root: str, data_root: str, batch_size=2, frame_count=32, 
 def index(exclude: set[str], run_id: str, learning_rate: float, filename: str):
     frame_count = 32
     data_split = json.loads(Path('data/split.json').read_text())
-    data = get_index('data/extract', paths=data_split['train'], frame_count=32)
+    data = get_index('data/extract', paths=data_split['train'], frame_count=frame_count)
     Dataset.save(data, f'data/train{frame_count}.dataset')
-    data = get_index('data/extract', paths=data_split['test'], frame_count=32)
+    data = get_index('data/extract', paths=data_split['test'], frame_count=frame_count)
     Dataset.save(data, f'data/test{frame_count}.dataset')
 
 def demo(exclude: set[str], run_id: str, learning_rate: float, filename: str):
